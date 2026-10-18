@@ -45,6 +45,12 @@ class Prefs(context: Context) {
         sp.edit().putFloat("channelSound", level).apply()
     }
 
+    fun openGroup(loginId: Long): String? = sp.getString("openGroup_$loginId", null)
+
+    fun setOpenGroup(loginId: Long, label: String?) {
+        sp.edit().apply { if (label == null) remove("openGroup_$loginId") else putString("openGroup_$loginId", label) }.apply()
+    }
+
     fun lastCategory(loginId: Long): String? = sp.getString("lastCat_$loginId", null)
 
     fun setLastCategory(loginId: Long, categoryId: String) {

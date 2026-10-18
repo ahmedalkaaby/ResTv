@@ -150,6 +150,23 @@ class LiveViewModel(
     private val _nowTitles = MutableStateFlow<Map<Long, String>>(emptyMap())
     val nowTitles: StateFlow<Map<Long, String>> = _nowTitles
 
+    /** Accordion: only one country group is open at a time; Pinned and the specials are always open. */
+    private val _openGroup = MutableStateFlow(app.prefs.openGroup(loginId))
+    val openGroup: StateFlow<String?> = _openGroup
+
+    fun toggleGroup(label: String) {
+        val next = if (_openGroup.value == label) null else label
+        _openGroup.value = next
+        app.prefs.setOpenGroup(loginId, next)
+    }
+
+    /** Search survives a trip to the player and back. */
+    val searchQuery = MutableStateFlow("")
+    var lastSearchStreamId: Long? = null
+
+    /** Where the category list was scrolled, so it comes back in the same place. */
+    var categoryScrollIndex: Int = 0
+
     /** Remembered so focus returns to the same channel after the player closes. */
     var lastFocusedStreamId: Long? = null
         private set
@@ -167,6 +184,11 @@ class LiveViewModel(
                         saved != null && list.any { it.id == saved } -> saved
                         fav != null && fav.count > 0 -> FAV_ID
                         else -> list.firstOrNull { !it.special }?.id ?: list.first().id
+                    }
+                    if (_openGroup.value == null) {
+                        list.firstOrNull { it.id == _selected.value && !it.special && !it.pinned }?.let {
+                            _openGroup.value = it.groupLabel
+                        }
                     }
                 }
             }

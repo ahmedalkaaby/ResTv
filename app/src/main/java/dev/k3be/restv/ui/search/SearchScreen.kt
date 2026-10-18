@@ -8,12 +8,12 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
@@ -48,13 +48,19 @@ fun SearchScreen(
     val app = LocalContext.current.applicationContext as RestvApp
     val live = rememberLiveViewModel(session)
     val favs by live.favoriteIds.collectAsStateWithLifecycle()
-    var query by rememberSaveable { mutableStateOf("") }
+    val query by live.searchQuery.collectAsStateWithLifecycle()
     var results by remember { mutableStateOf<List<ChannelRow>>(emptyList()) }
     var categoryNames by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
     val field = remember { FocusRequester() }
+    val listState = rememberLazyListState()
+    LaunchedEffect(results) {
+        val idx = results.indexOfFirst { it.streamId == live.lastSearchStreamId }
+        if (idx >= 0) listState.scrollToItem((idx - 2).coerceAtLeast(0))
+    }
 
+    val restoreId = remember { live.lastSearchStreamId }
     LaunchedEffect(Unit) {
-        runCatching { field.requestFocus() }
+        if (restoreId == null || query.trim().length < 2) runCatching { field.requestFocus() }
         categoryNames = app.db.live().categories(session.login.id).associate { c ->
             c.categoryId to listOf(c.name, c.groupLabel).filter { it.isNotBlank() && it != "Other" }.joinToString(" · ")
         }
@@ -63,7 +69,13 @@ fun SearchScreen(
         val q = query.trim()
         if (q.length < 2) { results = emptyList(); return@LaunchedEffect }
         delay(250) // wait for typing to pause
-        results = groupVariants(app.db.live().search(session.login.id, q))
+        val prefix = q.lowercase()
+        // 4K first across every category, then FHD, HD; names starting with the query first within a tier.
+        results = groupVariants(app.db.live().search(session.login.id, q)).sortedWith(
+            compareByDescending<ChannelRow> { it.main.quality }
+                .thenBy { if (it.main.name.lowercase().startsWith(prefix)) 0 else 1 }
+                .thenBy { it.main.name.lowercase() }
+        )
     }
 
     Row(Modifier.fillMaxSize()) {
@@ -74,7 +86,7 @@ fun SearchScreen(
         ) {
             Txt("Search", T.titleLg)
             Column(Modifier.width(560.dp)) {
-                TvTextField("Channel name", query, { query = it }, Modifier.focusRequester(field), keyboardType = KeyboardType.Text)
+                TvTextField("Channel name", query, { live.searchQuery.value = it }, Modifier.focusRequester(field), keyboardType = KeyboardType.Text)
             }
             Txt(
                 when {
@@ -84,12 +96,17 @@ fun SearchScreen(
                 },
                 T.caption, color = C.inkFaint,
             )
-            LazyColumn(Modifier.width(720.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            LazyColumn(Modifier.width(720.dp), state = listState, verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 items(results.size, key = { results[it].streamId }) { index ->
                     val row = results[index]
+                    val fr = remember { FocusRequester() }
+                    if (row.streamId == restoreId) {
+                        LaunchedEffect(Unit) { runCatching { fr.requestFocus() }; live.lastSearchStreamId = null }
+                    }
                     FocusRow(
+                        modifier = Modifier.focusRequester(fr),
                         height = 60.dp,
-                        onClick = { onPlay(results, index) },
+                        onClick = { live.lastSearchStreamId = row.streamId; onPlay(results, index) },
                         onLongClick = { live.toggleFavorite(row.main) },
                     ) { _ ->
                         ChannelRowContent(row, row.streamId in favs, categoryNames[row.main.categoryId])

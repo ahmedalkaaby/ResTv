@@ -18,6 +18,11 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.withFrameNanos
+import kotlinx.coroutines.launch
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -75,6 +80,39 @@ fun rememberLiveViewModel(session: Session): LiveViewModel {
     )
 }
 
+/** What the categories list shows: group headers (collapsible) and categories. */
+private sealed interface CatEntry {
+    val key: String
+    data class Header(val label: String, val count: Int, val open: Boolean, val collapsible: Boolean) : CatEntry {
+        override val key get() = "h-$label"
+    }
+    data class Cat(val item: CatItem) : CatEntry {
+        override val key get() = item.id
+    }
+}
+
+private fun buildEntries(categories: List<CatItem>, openGroup: String?, selected: String?, moving: Boolean): List<CatEntry> {
+    if (moving) return categories.map { CatEntry.Cat(it) }
+    val out = ArrayList<CatEntry>()
+    val specials = categories.filter { it.special }
+    val pinned = categories.filter { !it.special && it.pinned }
+    val rest = categories.filter { !it.special && !it.pinned }
+    specials.forEach { out += CatEntry.Cat(it) }
+    if (pinned.isNotEmpty()) {
+        out += CatEntry.Header("Pinned", pinned.size, open = true, collapsible = false)
+        pinned.forEach { out += CatEntry.Cat(it) }
+    }
+    // Groups in the order they first appear in the user's ordering.
+    val groups = LinkedHashMap<String, MutableList<CatItem>>()
+    rest.forEach { groups.getOrPut(it.groupLabel) { mutableListOf() } += it }
+    groups.forEach { (label, items) ->
+        val open = label == openGroup
+        out += CatEntry.Header(label, items.size, open, collapsible = true)
+        if (open) items.forEach { out += CatEntry.Cat(it) }
+    }
+    return out
+}
+
 @Composable
 fun LiveScreen(
     session: Session,
@@ -91,6 +129,27 @@ fun LiveScreen(
     val favs by vm.favoriteIds.collectAsStateWithLifecycle()
     val movingId by vm.movingId.collectAsStateWithLifecycle()
     val nowTitles by vm.nowTitles.collectAsStateWithLifecycle()
+    val openGroup by vm.openGroup.collectAsStateWithLifecycle()
+
+    val entries = remember(categories, openGroup, selected, movingId) {
+        buildEntries(categories, openGroup, selected, movingId != null)
+    }
+    val catListState = rememberLazyListState(initialFirstVisibleItemIndex = vm.categoryScrollIndex)
+    DisposableEffect(Unit) { onDispose { vm.categoryScrollIndex = catListState.firstVisibleItemIndex } }
+    val selectedFr = remember { FocusRequester() }
+    val scope = rememberCoroutineScope()
+
+    /** Brings the selected category on screen and focuses it (used by LEFT from the channel list). */
+    fun focusSelectedCategory() {
+        scope.launch {
+            val idx = entries.indexOfFirst { it is CatEntry.Cat && it.item.id == selected }
+            if (idx < 0) return@launch
+            val visible = catListState.layoutInfo.visibleItemsInfo.any { it.index == idx }
+            if (!visible) catListState.scrollToItem((idx - 3).coerceAtLeast(0))
+            withFrameNanos { }
+            runCatching { selectedFr.requestFocus() }
+        }
+    }
 
     Row(Modifier.fillMaxSize()) {
         Sidebar(active = SidebarItem.Live, onSelect = {
@@ -102,10 +161,13 @@ fun LiveScreen(
         })
         CategoriesPane(
             vm = vm,
-            categories = categories,
+            entries = entries,
+            listState = catListState,
             selected = selected,
+            selectedFr = selectedFr,
             movingId = movingId,
             restoringChannel = vm.lastFocusedStreamId != null,
+            onInitialFocus = ::focusSelectedCategory,
             modifier = Modifier.width(220.dp).fillMaxHeight().padding(top = S.safeY, start = 8.dp),
         )
         ChannelsPane(
@@ -122,6 +184,7 @@ fun LiveScreen(
             },
             onPlay = { index -> onPlay(channels, index) },
             onToggleFavorite = vm::toggleFavorite,
+            onLeft = ::focusSelectedCategory,
             modifier = Modifier.weight(1f).fillMaxHeight().padding(top = S.safeY, start = S.s3, end = S.s3),
         )
         PreviewPane(
@@ -134,22 +197,27 @@ fun LiveScreen(
 @Composable
 private fun CategoriesPane(
     vm: LiveViewModel,
-    categories: List<CatItem>,
+    entries: List<CatEntry>,
+    listState: LazyListState,
     selected: String?,
+    selectedFr: FocusRequester,
     movingId: String?,
     restoringChannel: Boolean,
+    onInitialFocus: () -> Unit,
     modifier: Modifier,
 ) {
     var menuFor by remember { mutableStateOf<CatItem?>(null) }
-    val listState = rememberLazyListState()
     val focusManager = LocalFocusManager.current
     var initialFocusDone by remember { mutableStateOf(false) }
 
     BackHandler(enabled = movingId != null) { vm.cancelMove() }
     BackHandler(enabled = menuFor != null) { menuFor = null }
 
-    val movingIndex = categories.indexOfFirst { it.id == movingId }
+    val movingIndex = entries.indexOfFirst { it is CatEntry.Cat && it.item.id == movingId }
     LaunchedEffect(movingIndex) { if (movingIndex >= 0) listState.animateScrollToItem((movingIndex - 3).coerceAtLeast(0)) }
+    LaunchedEffect(entries.isNotEmpty()) {
+        if (entries.isNotEmpty() && !initialFocusDone && !restoringChannel) { initialFocusDone = true; onInitialFocus() }
+    }
 
     Column(modifier) {
         val menu = menuFor
@@ -171,68 +239,79 @@ private fun CategoriesPane(
             }
         }
         LazyColumn(state = listState, verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            var prevGroup: String? = null
-            var prevPinned = false
-            categories.forEachIndexed { index, c ->
-                val showHeader = movingId == null && !c.special && (
-                    (c.pinned && !prevPinned) || (!c.pinned && (prevPinned || c.groupLabel != prevGroup))
-                )
-                if (showHeader) {
-                    val label = if (c.pinned) "Pinned" else c.groupLabel
-                    item(key = "h-$index-$label") { SectionLabel(label, Modifier.padding(start = 12.dp, top = 10.dp, bottom = 2.dp)) }
-                }
-                if (!c.special) { prevGroup = c.groupLabel; prevPinned = c.pinned }
-                item(key = c.id) {
-                    val isMoving = c.id == movingId
-                    val fr = remember { FocusRequester() }
-                    if (c.id == selected && !initialFocusDone && !restoringChannel) {
-                        LaunchedEffect(Unit) { runCatching { fr.requestFocus() }; initialFocusDone = true }
-                    }
-                    FocusRow(
-                        modifier = Modifier
-                            .focusRequester(fr)
-                            .then(if (isMoving) Modifier.offset(x = 8.dp) else Modifier)
-                            .onPreviewKeyEvent { ev ->
-                                if (!isMoving || ev.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
-                                when (ev.key) {
-                                    Key.DirectionUp -> { vm.moveBy(-1); true }
-                                    Key.DirectionDown -> { vm.moveBy(1); true }
-                                    Key.DirectionLeft, Key.DirectionRight -> true
-                                    else -> false
-                                }
+            items(entries.size, key = { entries[it].key }) { index ->
+                when (val e = entries[index]) {
+                    is CatEntry.Header -> GroupHeader(e) { vm.toggleGroup(e.label) }
+                    is CatEntry.Cat -> {
+                        val c = e.item
+                        val isMoving = c.id == movingId
+                        val own = remember { FocusRequester() }
+                        val fr = if (c.id == selected) selectedFr else own
+                        FocusRow(
+                            modifier = Modifier
+                                .focusRequester(fr)
+                                .then(if (isMoving) Modifier.offset(x = 8.dp) else Modifier)
+                                .onPreviewKeyEvent { ev ->
+                                    if (!isMoving || ev.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                                    when (ev.key) {
+                                        Key.DirectionUp -> { vm.moveBy(-1); true }
+                                        Key.DirectionDown -> { vm.moveBy(1); true }
+                                        Key.DirectionLeft, Key.DirectionRight -> true
+                                        else -> false
+                                    }
+                                },
+                            selected = c.id == selected && movingId == null,
+                            lifted = isMoving,
+                            height = 40.dp,
+                            onFocused = { vm.select(c.id) },
+                            onClick = {
+                                if (isMoving) vm.dropMove()
+                                else { vm.select(c.id); focusManager.moveFocus(FocusDirection.Right) }
                             },
-                        selected = c.id == selected && movingId == null,
-                        lifted = isMoving,
-                        height = 40.dp,
-                        onFocused = { vm.select(c.id) },
-                        onClick = {
-                            if (isMoving) vm.dropMove()
-                            else { vm.select(c.id); focusManager.moveFocus(FocusDirection.Right) }
-                        },
-                        onLongClick = if (c.special || movingId != null) null else ({ menuFor = c }),
-                    ) { focused ->
-                        Row(
-                            Modifier.fillMaxWidth().padding(horizontal = 12.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
-                        ) {
-                            val iconTint = if (isMoving || (c.id == selected && !focused)) C.accent else C.inkFaint
-                            when {
-                                isMoving -> Icon(Icons.move, C.accent, 16.dp)
-                                c.id == FAV_ID -> Icon(Icons.star, iconTint, 16.dp)
-                                c.pinned -> Icon(Icons.pin, iconTint, 16.dp)
+                            onLongClick = if (c.special || movingId != null) null else ({ menuFor = c }),
+                        ) { focused ->
+                            Row(
+                                Modifier.fillMaxWidth().padding(start = if (c.special || movingId != null) 12.dp else 20.dp, end = 12.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            ) {
+                                val iconTint = if (isMoving || (c.id == selected && !focused)) C.accent else C.inkFaint
+                                when {
+                                    isMoving -> Icon(Icons.move, C.accent, 16.dp)
+                                    c.id == FAV_ID -> Icon(Icons.star, iconTint, 16.dp)
+                                    c.pinned -> Icon(Icons.pin, iconTint, 16.dp)
+                                }
+                                Txt(
+                                    c.name,
+                                    T.label,
+                                    color = if (c.id == selected && !focused && movingId == null) C.accent else C.ink,
+                                    modifier = Modifier.weight(1f),
+                                )
+                                Txt(c.count.toString(), T.caption, color = C.inkFaint)
                             }
-                            Txt(
-                                c.name,
-                                T.label,
-                                color = if (c.id == selected && !focused && movingId == null) C.accent else C.ink,
-                                modifier = Modifier.weight(1f),
-                            )
-                            Txt(c.count.toString(), T.caption, color = C.inkFaint)
                         }
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun GroupHeader(h: CatEntry.Header, onToggle: () -> Unit) {
+    if (!h.collapsible) {
+        SectionLabel(h.label, Modifier.padding(start = 12.dp, top = 10.dp, bottom = 2.dp))
+        return
+    }
+    FocusRow(height = 36.dp, onClick = onToggle) { focused ->
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Icon(if (h.open) Icons.chevronDown else Icons.chevronRight, if (focused) C.ink else C.inkFaint, 14.dp)
+            Txt(h.label.uppercase(), T.section.copy(color = if (focused || h.open) C.ink else C.inkMuted), modifier = Modifier.weight(1f))
+            Txt(h.count.toString(), T.caption, color = C.inkFaint)
         }
     }
 }
@@ -287,6 +366,7 @@ private fun ChannelsPane(
     onFocus: (Int) -> Unit,
     onPlay: (Int) -> Unit,
     onToggleFavorite: (ChannelEntity) -> Unit,
+    onLeft: () -> Unit,
     modifier: Modifier,
 ) {
     val listState = rememberLazyListState()
@@ -322,7 +402,12 @@ private fun ChannelsPane(
                     LaunchedEffect(Unit) { runCatching { fr.requestFocus() }; restoreTarget = null }
                 }
                 FocusRow(
-                    modifier = Modifier.focusRequester(fr),
+                    modifier = Modifier
+                        .focusRequester(fr)
+                        .onPreviewKeyEvent { ev ->
+                            // LEFT always goes back to the category you came from, not the nearest row.
+                            if (ev.type == KeyEventType.KeyDown && ev.key == Key.DirectionLeft) { onLeft(); true } else false
+                        },
                     height = 60.dp,
                     onFocused = { onFocus(index) },
                     onClick = { onPlay(index) },

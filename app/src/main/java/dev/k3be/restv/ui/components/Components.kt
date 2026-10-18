@@ -285,6 +285,8 @@ object Icons {
             .addPath(pathData = PathParser().parsePathString(d).toNodes(), fill = SolidColor(Color.White))
             .build()
 
+    val chevronRight = stroke("chevronRight", "M9 6l6 6 -6 6")
+    val chevronDown = stroke("chevronDown", "M6 9l6 6 6 -6")
     val audio = stroke("audio", "M4 16v-4a8 8 0 0 1 16 0v4", "M5 14h1.5a1.5 1.5 0 0 1 1.5 1.5v3a1.5 1.5 0 0 1 -1.5 1.5h-1.5a1 1 0 0 1 -1 -1v-4a1 1 0 0 1 1 -1z", "M17.5 14h1.5a1 1 0 0 1 1 1v4a1 1 0 0 1 -1 1h-1.5a1.5 1.5 0 0 1 -1.5 -1.5v-3a1.5 1.5 0 0 1 1.5 -1.5z")
     val search = stroke("search", "M4 11a7 7 0 1 0 14 0a7 7 0 1 0 -14 0", "M20 20l-4.2 -4.2")
     val live = stroke("live", "M5 7h14a2 2 0 0 1 2 2v9a2 2 0 0 1 -2 2h-14a2 2 0 0 1 -2 -2v-9a2 2 0 0 1 2 -2z", "M8 3l4 4 4 -4")
