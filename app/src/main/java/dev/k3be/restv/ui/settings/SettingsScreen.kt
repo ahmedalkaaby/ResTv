@@ -126,6 +126,19 @@ fun SettingsScreen(session: Session, sync: SyncState, onSync: () -> Unit, onNavi
             }
 
             Card {
+                SectionLabel("Matches server")
+                var url by remember { mutableStateOf(app.prefs.matchesUrl() ?: "https://restv.k3be.dev/api/matches") }
+                var key by remember { mutableStateOf(app.prefs.matchesKey() ?: "") }
+                var savedServer by remember { mutableStateOf(false) }
+                Txt("Your Laravel server that lists today's matches and channels (see server/README.md in the repo).", T.body, color = C.inkMuted, maxLines = 2)
+                Column(Modifier.width(520.dp), verticalArrangement = Arrangement.spacedBy(S.s2)) {
+                    TvTextField("Server URL", url, { url = it; savedServer = false })
+                    TvTextField("Key", key, { key = it; savedServer = false }, password = true)
+                }
+                TvButton(if (savedServer) "Saved" else "Save server") { app.prefs.setMatchesServer(url, key); savedServer = true }
+            }
+
+            Card {
                 SectionLabel("Commentary audio")
                 val sourceCount = remember { app.audioSources.list().size }
                 var token by remember { mutableStateOf(app.prefs.audioToken() ?: app.audioSources.bundledToken) }

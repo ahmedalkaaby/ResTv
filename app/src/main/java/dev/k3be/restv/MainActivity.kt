@@ -25,6 +25,7 @@ import dev.k3be.restv.ui.components.Toast
 import dev.k3be.restv.ui.live.LiveScreen
 import dev.k3be.restv.ui.live.SidebarItem
 import dev.k3be.restv.ui.search.SearchScreen
+import dev.k3be.restv.ui.matches.MatchesScreen
 import dev.k3be.restv.ui.onboarding.OnboardingScreen
 import dev.k3be.restv.ui.player.PlayerScreen
 import dev.k3be.restv.ui.settings.SettingsScreen
@@ -53,7 +54,17 @@ fun AppRoot(vm: AppViewModel = viewModel()) {
     var exitHint by remember { mutableStateOf(false) }
     LaunchedEffect(exitHint) { if (exitHint) { delay(BACK_CONFIRM_MS); exitHint = false } }
 
-    BackHandler(enabled = route is Route.Settings || route is Route.Search) { vm.back() }
+    BackHandler(enabled = route is Route.Settings || route is Route.Search || route is Route.Matches) { vm.back() }
+    val navigate: (SidebarItem) -> Unit = { item ->
+        vm.go(
+            when (item) {
+                SidebarItem.Search -> Route.Search
+                SidebarItem.Live -> Route.Live
+                SidebarItem.Matches -> Route.Matches
+                SidebarItem.Settings -> Route.Settings
+            }
+        )
+    }
     // Leaving the app takes two presses, so a stray Back never closes it.
     BackHandler(enabled = route is Route.Live || route is Route.Onboarding) {
         val now = System.currentTimeMillis()
@@ -70,21 +81,25 @@ fun AppRoot(vm: AppViewModel = viewModel()) {
                     session = s,
                     sync = sync,
                     onPlay = { list, index -> vm.go(Route.Player(list, index)) },
-                    onOpenSettings = { vm.go(Route.Settings) },
-                    onOpenSearch = { vm.go(Route.Search) },
+                    onNavigate = navigate,
                 )
             }
             Route.Search -> session?.let { s ->
                 SearchScreen(
                     session = s,
                     onPlay = { list, index -> vm.go(Route.Player(list, index)) },
-                    onNavigate = { item -> vm.go(if (item == SidebarItem.Settings) Route.Settings else Route.Live) },
+                    onNavigate = navigate,
+                )
+            }
+            Route.Matches -> session?.let { s ->
+                MatchesScreen(
+                    session = s,
+                    onPlay = { list, index -> vm.go(Route.Player(list, index)) },
+                    onNavigate = navigate,
                 )
             }
             Route.Settings -> session?.let { s ->
-                SettingsScreen(session = s, sync = sync, onSync = vm::syncNow, onNavigate = { item ->
-                    vm.go(if (item == SidebarItem.Search) Route.Search else Route.Live)
-                })
+                SettingsScreen(session = s, sync = sync, onSync = vm::syncNow, onNavigate = navigate)
             }
             is Route.Player -> session?.let { s ->
                 PlayerScreen(session = s, rows = r.channels, startIndex = r.index, onExit = { vm.back() })

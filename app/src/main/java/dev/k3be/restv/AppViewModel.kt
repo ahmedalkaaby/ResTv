@@ -22,6 +22,7 @@ sealed interface Route {
     data object Live : Route
     data object Settings : Route
     data object Search : Route
+    data object Matches : Route
     data class Player(val channels: List<ChannelRow>, val index: Int) : Route
 }
 
@@ -70,13 +71,13 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun go(route: Route) {
-        if (route is Route.Live || route is Route.Search) mainRoute = route
+        if (route is Route.Live || route is Route.Search || route is Route.Matches) mainRoute = route
         _route.value = route
     }
 
     fun back(): Boolean = when (_route.value) {
         is Route.Player -> { _route.value = mainRoute; true }
-        Route.Settings, Route.Search -> { mainRoute = Route.Live; _route.value = Route.Live; true }
+        Route.Settings, Route.Search, Route.Matches -> { mainRoute = Route.Live; _route.value = Route.Live; true }
         else -> false
     }
 

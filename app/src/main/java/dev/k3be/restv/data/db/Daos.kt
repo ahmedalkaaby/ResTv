@@ -80,6 +80,9 @@ interface LiveDao {
     )
     suspend fun search(loginId: Long, q: String): List<ChannelEntity>
 
+    @Query("SELECT * FROM channel WHERE loginId = :loginId AND streamId IN (:ids)")
+    suspend fun byIds(loginId: Long, ids: List<Long>): List<ChannelEntity>
+
     @Query("SELECT * FROM live_category WHERE loginId = :loginId")
     suspend fun categories(loginId: Long): List<LiveCategoryEntity>
 

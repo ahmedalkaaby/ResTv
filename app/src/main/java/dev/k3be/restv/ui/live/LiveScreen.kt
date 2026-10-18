@@ -19,8 +19,11 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
+import kotlinx.coroutines.delay
 import androidx.compose.runtime.withFrameNanos
 import kotlinx.coroutines.launch
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -118,8 +121,7 @@ fun LiveScreen(
     session: Session,
     sync: SyncState,
     onPlay: (List<ChannelRow>, Int) -> Unit,
-    onOpenSettings: () -> Unit,
-    onOpenSearch: () -> Unit,
+    onNavigate: (SidebarItem) -> Unit,
 ) {
     val vm = rememberLiveViewModel(session)
     val categories by vm.categories.collectAsStateWithLifecycle()
@@ -138,6 +140,32 @@ fun LiveScreen(
     DisposableEffect(Unit) { onDispose { vm.categoryScrollIndex = catListState.firstVisibleItemIndex } }
     val selectedFr = remember { FocusRequester() }
     val scope = rememberCoroutineScope()
+    val categoryNames by vm.categoryNames.collectAsStateWithLifecycle()
+    val gridState = rememberLazyGridState()
+    val currentChannels by rememberUpdatedState(channels)
+    /** Channel to focus once it is on screen: set on return from the player and by RIGHT from categories. */
+    var channelFocusTarget by remember { mutableStateOf(vm.lastFocusedStreamId) }
+
+    // Coming back from the player: scroll the grid to the last channel so it can take focus.
+    LaunchedEffect(channels) {
+        val target = channelFocusTarget ?: return@LaunchedEffect
+        val idx = channels.indexOfFirst { it.streamId == target || it.others.any { o -> o.streamId == target } }
+        if (idx >= 0) gridState.scrollToItem(idx)
+    }
+
+    /** RIGHT from the categories: back to the channel you were on, else the first one. */
+    fun focusLastChannel() {
+        scope.launch {
+            delay(260) // let a just-selected category's channels load
+            val list = currentChannels
+            if (list.isEmpty()) return@launch
+            val last = vm.lastFocusedStreamId
+            val idx = list.indexOfFirst { it.streamId == last }.takeIf { it >= 0 } ?: 0
+            gridState.scrollToItem(idx)
+            withFrameNanos { }
+            channelFocusTarget = list[idx].streamId
+        }
+    }
 
     /** Brings the selected category on screen and focuses it (used by LEFT from the channel list). */
     fun focusSelectedCategory() {
@@ -152,13 +180,7 @@ fun LiveScreen(
     }
 
     Row(Modifier.fillMaxSize()) {
-        Sidebar(active = SidebarItem.Live, onSelect = {
-            when (it) {
-                SidebarItem.Settings -> onOpenSettings()
-                SidebarItem.Search -> onOpenSearch()
-                SidebarItem.Live -> {}
-            }
-        })
+        Sidebar(active = SidebarItem.Live, onSelect = { if (it != SidebarItem.Live) onNavigate(it) })
         CategoriesPane(
             vm = vm,
             entries = entries,
@@ -168,29 +190,35 @@ fun LiveScreen(
             movingId = movingId,
             restoringChannel = vm.lastFocusedStreamId != null,
             onInitialFocus = ::focusSelectedCategory,
+            onRight = ::focusLastChannel,
             modifier = Modifier.width(220.dp).fillMaxHeight().padding(top = S.safeY, start = 8.dp),
         )
-        ChannelsPane(
-            channels = channels,
-            title = categories.firstOrNull { it.id == selected }?.name ?: "",
-            favorites = favs,
-            nowTitles = nowTitles,
-            restoreStreamId = vm.lastFocusedStreamId,
-            sync = sync,
-            onFocus = { index ->
-                val row = channels[index]
-                val near = (1..4).flatMap { listOf(index + it, index - it) }.mapNotNull { channels.getOrNull(it) }
-                vm.focusChannel(row, near)
-            },
-            onPlay = { index -> onPlay(channels, index) },
-            onToggleFavorite = vm::toggleFavorite,
-            onLeft = ::focusSelectedCategory,
-            modifier = Modifier.weight(1f).fillMaxHeight().padding(top = S.safeY, start = S.s3, end = S.s3),
-        )
-        PreviewPane(
-            preview = preview,
-            modifier = Modifier.width(256.dp).fillMaxHeight().padding(top = S.safeY, end = S.safeX),
-        )
+        Column(Modifier.weight(1f).fillMaxHeight().padding(top = S.safeY, start = S.s4, end = S.safeX)) {
+            InfoBand(
+                title = categories.firstOrNull { it.id == selected }?.name ?: "",
+                count = channels.size,
+                preview = preview,
+                categoryName = preview?.row?.main?.categoryId?.let { categoryNames[it] },
+                sync = sync,
+            )
+            ChannelGrid(
+                channels = channels,
+                favorites = favs,
+                nowTitles = nowTitles,
+                state = gridState,
+                focusTarget = channelFocusTarget,
+                onFocusTargetConsumed = { channelFocusTarget = null },
+                onFocus = { index ->
+                    val row = channels[index]
+                    val near = (1..6).flatMap { listOf(index + it, index - it) }.mapNotNull { channels.getOrNull(it) }
+                    vm.focusChannel(row, near)
+                },
+                onPlay = { index -> onPlay(channels, index) },
+                onLongPress = { index -> vm.toggleFavorite(channels[index].main) },
+                onLeftEdge = ::focusSelectedCategory,
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
     }
 }
 
@@ -204,6 +232,7 @@ private fun CategoriesPane(
     movingId: String?,
     restoringChannel: Boolean,
     onInitialFocus: () -> Unit,
+    onRight: () -> Unit,
     modifier: Modifier,
 ) {
     var menuFor by remember { mutableStateOf<CatItem?>(null) }
@@ -252,6 +281,9 @@ private fun CategoriesPane(
                                 .focusRequester(fr)
                                 .then(if (isMoving) Modifier.offset(x = 8.dp) else Modifier)
                                 .onPreviewKeyEvent { ev ->
+                                    if (!isMoving && movingId == null && ev.type == KeyEventType.KeyDown && ev.key == Key.DirectionRight) {
+                                        onRight(); return@onPreviewKeyEvent true
+                                    }
                                     if (!isMoving || ev.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                                     when (ev.key) {
                                         Key.DirectionUp -> { vm.moveBy(-1); true }
@@ -266,7 +298,7 @@ private fun CategoriesPane(
                             onFocused = { vm.select(c.id) },
                             onClick = {
                                 if (isMoving) vm.dropMove()
-                                else { vm.select(c.id); focusManager.moveFocus(FocusDirection.Right) }
+                                else { vm.select(c.id); onRight() }
                             },
                             onLongClick = if (c.special || movingId != null) null else ({ menuFor = c }),
                         ) { focused ->
@@ -356,69 +388,6 @@ private fun MenuOption(text: String, icon: androidx.compose.ui.graphics.vector.I
 }
 
 @Composable
-private fun ChannelsPane(
-    channels: List<ChannelRow>,
-    title: String,
-    favorites: Set<Long>,
-    nowTitles: Map<Long, String>,
-    restoreStreamId: Long?,
-    sync: SyncState,
-    onFocus: (Int) -> Unit,
-    onPlay: (Int) -> Unit,
-    onToggleFavorite: (ChannelEntity) -> Unit,
-    onLeft: () -> Unit,
-    modifier: Modifier,
-) {
-    val listState = rememberLazyListState()
-    var restoreTarget by remember { mutableStateOf(restoreStreamId) }
-    LaunchedEffect(channels) {
-        val target = restoreTarget ?: return@LaunchedEffect
-        val idx = channels.indexOfFirst { it.streamId == target || it.others.any { o -> o.streamId == target } }
-        if (idx >= 0) listState.scrollToItem((idx - 2).coerceAtLeast(0))
-    }
-
-    Column(modifier) {
-        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = 12.dp, bottom = 8.dp)) {
-            Txt(title, T.title, modifier = Modifier.weight(1f, fill = false))
-            Spacer(Modifier.width(10.dp))
-            Txt("${channels.size} channels · 4K first", T.caption, color = C.inkFaint)
-        }
-        when (sync) {
-            is SyncState.Running -> Txt(sync.message, T.caption, color = C.accent, modifier = Modifier.padding(start = 12.dp, bottom = 8.dp))
-            is SyncState.Failed -> Txt("Sync failed: ${sync.message}", T.caption, color = C.danger, modifier = Modifier.padding(start = 12.dp, bottom = 8.dp), maxLines = 2)
-            SyncState.Idle -> {}
-        }
-        if (channels.isEmpty()) {
-            Txt(
-                if (title == "Favourites") "Hold OK on any channel to add it to Favourites." else "No channels here yet.",
-                T.body, color = C.inkMuted, modifier = Modifier.padding(12.dp), maxLines = 2,
-            )
-        }
-        LazyColumn(state = listState, verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            items(channels.size, key = { channels[it].streamId }) { index ->
-                val row = channels[index]
-                val fr = remember { FocusRequester() }
-                if (restoreTarget != null && (restoreTarget == row.streamId || row.others.any { it.streamId == restoreTarget })) {
-                    LaunchedEffect(Unit) { runCatching { fr.requestFocus() }; restoreTarget = null }
-                }
-                FocusRow(
-                    modifier = Modifier
-                        .focusRequester(fr)
-                        .onPreviewKeyEvent { ev ->
-                            // LEFT always goes back to the category you came from, not the nearest row.
-                            if (ev.type == KeyEventType.KeyDown && ev.key == Key.DirectionLeft) { onLeft(); true } else false
-                        },
-                    height = 60.dp,
-                    onFocused = { onFocus(index) },
-                    onClick = { onPlay(index) },
-                    onLongClick = { onToggleFavorite(row.main) },
-                ) { _ -> ChannelRowContent(row, row.streamId in favorites, nowTitles[row.streamId]) }
-            }
-        }
-    }
-}
-
-@Composable
 internal fun ChannelRowContent(row: ChannelRow, favorite: Boolean, nowTitle: String?) {
     val ch = row.main
     Row(
@@ -463,51 +432,3 @@ fun ChannelLogo(ch: ChannelEntity, sizeDp: Int) {
 
 private val timeFmt = SimpleDateFormat("HH:mm", Locale.getDefault())
 
-@Composable
-private fun PreviewPane(preview: Preview?, modifier: Modifier) {
-    Column(modifier, verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        if (preview == null) {
-            Txt("Pick a channel", T.body, color = C.inkFaint)
-            return@Column
-        }
-        val ch = preview.row.main
-        Box(
-            Modifier
-                .fillMaxWidth()
-                .height(144.dp)
-                .clip(RoundedCornerShape(S.radiusMd))
-                .background(C.bg200),
-            contentAlignment = Alignment.Center,
-        ) { ChannelLogo(ch, 72) }
-        Txt(ch.name, T.title, maxLines = 2)
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            QualityBadge(ch.quality)
-            if (ch.hasArchive) Badge("Catch-up")
-        }
-        NowNextBlock(preview.nowNext)
-        val others = preview.row.others
-        if (others.isNotEmpty()) {
-            SectionLabel("Also available in", Modifier.padding(top = 4.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                others.take(4).forEach { v ->
-                    val label = dev.k3be.restv.data.Naming.qualityLabel(v.quality) ?: "SD"
-                    Badge(label, if (v.quality == 3) BadgeKind.Uhd else BadgeKind.Outline)
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun NowNextBlock(nn: NowNext?) {
-    val now = nn?.now
-    if (now == null) {
-        Txt(if (nn == null) "Loading guide…" else "No guide data for this channel", T.caption, color = C.inkFaint)
-        return
-    }
-    Txt(now.title.ifBlank { "On now" }, T.bodyLg, maxLines = 2)
-    Txt("${timeFmt.format(Date(now.start))} – ${timeFmt.format(Date(now.end))}", T.caption, color = C.inkMuted)
-    ProgressBar(now.progress(), Modifier.fillMaxWidth())
-    if (now.description.isNotBlank()) Txt(now.description, T.caption.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Medium), color = C.inkMuted, maxLines = 4)
-    nn.next?.let { Txt("Next ${timeFmt.format(Date(it.start))} · ${it.title}", T.caption, color = C.inkFaint, maxLines = 2) }
-}

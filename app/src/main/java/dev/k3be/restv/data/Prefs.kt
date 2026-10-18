@@ -45,6 +45,29 @@ class Prefs(context: Context) {
         sp.edit().putFloat("channelSound", level).apply()
     }
 
+    private val recentFlows = HashMap<Long, MutableStateFlow<List<Long>>>()
+
+    /** Recently watched channel ids, newest first (max 30). */
+    fun recent(loginId: Long): StateFlow<List<Long>> = recentFlows.getOrPut(loginId) {
+        MutableStateFlow(
+            sp.getString("recent_$loginId", "")!!.split(',').mapNotNull { it.toLongOrNull() }
+        )
+    }
+
+    fun addRecent(loginId: Long, streamId: Long) {
+        val flow = recent(loginId) as MutableStateFlow
+        val next = (listOf(streamId) + flow.value.filter { it != streamId }).take(30)
+        flow.value = next
+        sp.edit().putString("recent_$loginId", next.joinToString(",")).apply()
+    }
+
+    fun matchesUrl(): String? = sp.getString("matchesUrl", null)?.takeIf { it.isNotBlank() }
+    fun matchesKey(): String? = sp.getString("matchesKey", null)?.takeIf { it.isNotBlank() }
+
+    fun setMatchesServer(url: String, key: String) {
+        sp.edit().putString("matchesUrl", url.trim()).putString("matchesKey", key.trim()).apply()
+    }
+
     fun openGroup(loginId: Long): String? = sp.getString("openGroup_$loginId", null)
 
     fun setOpenGroup(loginId: Long, label: String?) {

@@ -41,6 +41,7 @@ import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -66,7 +67,9 @@ import dev.k3be.restv.ui.components.QualityBadge
 import dev.k3be.restv.ui.components.Toast
 import dev.k3be.restv.ui.components.Txt
 import dev.k3be.restv.ui.live.ChannelLogo
+import dev.k3be.restv.ui.live.CatItem
 import dev.k3be.restv.ui.live.ChannelRow
+import dev.k3be.restv.ui.live.rememberLiveViewModel
 import dev.k3be.restv.ui.theme.C
 import dev.k3be.restv.ui.theme.S
 import dev.k3be.restv.ui.theme.T
@@ -97,6 +100,10 @@ fun PlayerScreen(
     val scope = rememberCoroutineScope()
     val agent = remember { app.prefs.agent.value }
 
+    val live = rememberLiveViewModel(session)
+    val categoryNames by live.categoryNames.collectAsStateWithLifecycle()
+    /** The list being played; replaced when you pick a channel from another category. */
+    var rows by remember { mutableStateOf(rows) }
     var index by remember { mutableIntStateOf(startIndex.coerceIn(0, (rows.size - 1).coerceAtLeast(0))) }
     /** 0 = best quality; higher = fallback to the next lower quality of the same channel. */
     var variant by remember { mutableIntStateOf(0) }
@@ -133,7 +140,12 @@ fun PlayerScreen(
 
     var overlayToken by remember { mutableIntStateOf(1) }
     var overlayVisible by remember { mutableStateOf(true) }
-    var listOpen by remember { mutableStateOf(false) }
+    /** LEFT opens channels; LEFT again opens categories; RIGHT goes back a level. */
+    var panel by remember { mutableStateOf(Panel.None) }
+    val listOpen = panel != Panel.None
+    var browseRows by remember { mutableStateOf(rows) }
+    var browseTitle by remember { mutableStateOf<String?>(null) }
+    var browseCategoryId by remember { mutableStateOf<String?>(null) }
     var aspect by remember { mutableStateOf(Aspect.FIT) }
     var nowNext by remember { mutableStateOf<NowNext?>(null) }
     var lastBack by remember { mutableLongStateOf(0L) }
@@ -156,6 +168,7 @@ fun PlayerScreen(
                 format = format,
             )
         )
+        live.recordWatched(rows.getOrNull(index)?.main?.streamId ?: ch.streamId)
         nowNext = app.epg.peek(ch.streamId)
         nowNext = app.epg.nowNext(session.login, ch.streamId)
     }
@@ -188,8 +201,10 @@ fun PlayerScreen(
     BackHandler {
         if (commentaryOpen) {
             commentaryOpen = false
-        } else if (listOpen) {
-            listOpen = false
+        } else if (panel == Panel.Categories) {
+            panel = Panel.Channels
+        } else if (panel == Panel.Channels) {
+            panel = Panel.None
         } else {
             val now = System.currentTimeMillis()
             if (now - lastBack < BACK_CONFIRM_MS) onExit() else { lastBack = now; exitHint = true }
@@ -214,7 +229,7 @@ fun PlayerScreen(
                         }
                         true
                     }
-                    Key.DirectionLeft -> { listOpen = true; true }
+                    Key.DirectionLeft -> { browseRows = rows; browseTitle = null; panel = Panel.Channels; true }
                     Key.DirectionRight, Key.Menu -> {
                         aspect = Aspect.entries[(aspect.ordinal + 1) % Aspect.entries.size]
                         overlayToken++
@@ -245,6 +260,7 @@ fun PlayerScreen(
         if (overlayVisible && !listOpen && channel != null) {
             InfoOverlay(
                 channel = channel,
+                categoryName = categoryNames[channel.categoryId],
                 position = "${index + 1}/${rows.size}",
                 video = video,
                 aspect = aspect,
@@ -253,15 +269,35 @@ fun PlayerScreen(
             )
         }
 
-        if (listOpen) {
+        if (panel == Panel.Channels) {
+            val playingHere = browseRows === rows
             ChannelListPanel(
-                rows = rows,
-                playingIndex = index,
+                title = browseTitle ?: channel?.categoryId?.let { categoryNames[it] } ?: "Channels",
+                rows = browseRows,
+                playingStreamId = if (playingHere) rows.getOrNull(index)?.streamId else null,
                 onPick = { i ->
-                    if (i != index) { index = i; variant = 0 }
-                    listOpen = false
+                    if (browseRows !== rows || i != index) { rows = browseRows; index = i; variant = 0 }
+                    panel = Panel.None
                     overlayToken++
                 },
+                onLeft = { panel = Panel.Categories },
+                modifier = Modifier.align(Alignment.CenterStart),
+            )
+        }
+        if (panel == Panel.Categories) {
+            val cats by live.categories.collectAsStateWithLifecycle()
+            CategoryBrowserPanel(
+                categories = cats,
+                currentId = browseCategoryId ?: channel?.categoryId,
+                onPick = { cat ->
+                    scope.launch {
+                        browseRows = live.rowsFor(cat.id)
+                        browseTitle = cat.name
+                        browseCategoryId = cat.id
+                        panel = Panel.Channels
+                    }
+                },
+                onRight = { panel = Panel.Channels },
                 modifier = Modifier.align(Alignment.CenterStart),
             )
         }
@@ -300,32 +336,41 @@ fun PlayerScreen(
     }
 }
 
+private enum class Panel { None, Channels, Categories }
+
 @Composable
 private fun ChannelListPanel(
+    title: String,
     rows: List<ChannelRow>,
-    playingIndex: Int,
+    playingStreamId: Long?,
     onPick: (Int) -> Unit,
+    onLeft: () -> Unit,
     modifier: Modifier,
 ) {
+    val playingIndex = rows.indexOfFirst { it.streamId == playingStreamId }.coerceAtLeast(0)
     val listState = rememberLazyListState(initialFirstVisibleItemIndex = (playingIndex - 3).coerceAtLeast(0))
     val current = remember { FocusRequester() }
-    LaunchedEffect(Unit) { runCatching { current.requestFocus() } }
+    LaunchedEffect(rows) { runCatching { current.requestFocus() } }
     Column(
         modifier
-            .width(380.dp)
+            .width(400.dp)
             .fillMaxHeight()
             .background(C.bg100.copy(alpha = 0.96f))
             .padding(start = S.safeX - S.s4, end = S.s4, top = S.safeY, bottom = S.safeY),
         verticalArrangement = Arrangement.spacedBy(S.s2),
     ) {
-        Txt("Channels", T.title, modifier = Modifier.padding(start = 12.dp))
-        Txt("OK to switch · BACK to close", T.caption, color = C.inkFaint, modifier = Modifier.padding(start = 12.dp, bottom = 4.dp))
+        Txt(title, T.title, modifier = Modifier.padding(start = 12.dp))
+        Txt("OK switch · ◀ categories · BACK close", T.caption, color = C.inkFaint, modifier = Modifier.padding(start = 12.dp, bottom = 4.dp))
         LazyColumn(state = listState, verticalArrangement = Arrangement.spacedBy(4.dp)) {
             items(rows.size, key = { rows[it].streamId }) { i ->
                 val row = rows[i]
+                val isPlaying = row.streamId == playingStreamId
                 FocusRow(
-                    modifier = if (i == playingIndex) Modifier.focusRequester(current) else Modifier,
-                    selected = i == playingIndex,
+                    modifier = (if (i == playingIndex) Modifier.focusRequester(current) else Modifier)
+                        .onPreviewKeyEvent { ev ->
+                            if (ev.type == KeyEventType.KeyDown && ev.key == Key.DirectionLeft) { onLeft(); true } else false
+                        },
+                    selected = isPlaying,
                     height = 52.dp,
                     onClick = { onPick(i) },
                 ) { _ ->
@@ -335,8 +380,60 @@ private fun ChannelListPanel(
                         horizontalArrangement = Arrangement.spacedBy(S.s3),
                     ) {
                         ChannelLogo(row.main, 34)
-                        Txt(row.main.name, T.label, color = if (i == playingIndex) C.accent else C.ink, modifier = Modifier.weight(1f))
+                        Txt(row.main.name, T.label, color = if (isPlaying) C.accent else C.ink, modifier = Modifier.weight(1f))
+                        Naming.sourceTag(row.main.rawName)?.let { Badge(it) }
                         QualityBadge(row.main.quality)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CategoryBrowserPanel(
+    categories: List<CatItem>,
+    currentId: String?,
+    onPick: (CatItem) -> Unit,
+    onRight: () -> Unit,
+    modifier: Modifier,
+) {
+    val currentIndex = categories.indexOfFirst { it.id == currentId }.coerceAtLeast(0)
+    val listState = rememberLazyListState(initialFirstVisibleItemIndex = (currentIndex - 3).coerceAtLeast(0))
+    val current = remember { FocusRequester() }
+    LaunchedEffect(Unit) { runCatching { current.requestFocus() } }
+    Column(
+        modifier
+            .width(400.dp)
+            .fillMaxHeight()
+            .background(C.bg100.copy(alpha = 0.97f))
+            .padding(start = S.safeX - S.s4, end = S.s4, top = S.safeY, bottom = S.safeY),
+        verticalArrangement = Arrangement.spacedBy(S.s2),
+    ) {
+        Txt("Categories", T.title, modifier = Modifier.padding(start = 12.dp))
+        Txt("OK open · ▶ back to channels", T.caption, color = C.inkFaint, modifier = Modifier.padding(start = 12.dp, bottom = 4.dp))
+        LazyColumn(state = listState, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            items(categories.size, key = { categories[it].id }) { i ->
+                val c = categories[i]
+                FocusRow(
+                    modifier = (if (i == currentIndex) Modifier.focusRequester(current) else Modifier)
+                        .onPreviewKeyEvent { ev ->
+                            if (ev.type == KeyEventType.KeyDown && ev.key == Key.DirectionRight) { onRight(); true } else false
+                        },
+                    selected = c.id == currentId,
+                    height = 44.dp,
+                    onClick = { onPick(c) },
+                ) { _ ->
+                    Row(
+                        Modifier.fillMaxWidth().padding(horizontal = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Txt(c.name, T.label, color = if (c.id == currentId) C.accent else C.ink)
+                            if (c.groupLabel.isNotBlank() && c.groupLabel != "Other") Txt(c.groupLabel, T.caption, color = C.inkFaint)
+                        }
+                        Txt(c.count.toString(), T.caption, color = C.inkFaint)
                     }
                 }
             }
@@ -369,6 +466,7 @@ private fun StatusChip(status: PlayStatus, modifier: Modifier) {
 @Composable
 private fun InfoOverlay(
     channel: ChannelEntity,
+    categoryName: String?,
     position: String,
     video: VideoInfo?,
     aspect: Aspect,
@@ -414,6 +512,9 @@ private fun InfoOverlay(
                 }
                 Spacer(Modifier.weight(1f))
                 Txt(position, T.caption, color = C.inkFaint)
+            }
+            categoryName?.let {
+                Txt(listOfNotNull(it, Naming.sourceTag(channel.rawName)?.let { t -> "Source $t" }).joinToString(" · "), T.caption, color = C.inkFaint)
             }
             val now = nowNext?.now
             if (now != null) {

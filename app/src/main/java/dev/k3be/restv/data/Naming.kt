@@ -19,11 +19,11 @@ object Naming {
         '⁸' to '8', '⁹' to '9',
     )
 
-    private val q4k = Regex("""(?i)(?<![A-Z0-9])(4K|UHD|2160P?)(?![A-Z0-9])""")
+    private val q4k = Regex("""(?i)(?<![A-Z0-9])(4K|UHD|2160P?|3840P?)(?![A-Z0-9])""")
     private val qFhd = Regex("""(?i)(?<![A-Z0-9])(FHD|1080P?)(?![A-Z0-9])""")
     private val qHd = Regex("""(?i)(?<![A-Z0-9])(HD|720P?)(?![A-Z0-9])""")
     private val qSd = Regex("""(?i)(?<![A-Z0-9])(SD|576P?|480P?)(?![A-Z0-9])""")
-    private val qualityTokens = Regex("""(?i)(?<![A-Z0-9])(4K|UHD|2160P?|FHD|1080P?|HD|720P?|SD|576P?|480P?|HEVC|H\.?265|50FPS|60FPS)(?![A-Z0-9])""")
+    private val qualityTokens = Regex("""(?i)(?<![A-Z0-9])(4K|UHD|2160P?|3840P?|FHD|1080P?|HD|720P?|SD|576P?|480P?|HEVC|H\.?265|50FPS|60FPS)(?![A-Z0-9])""")
     private val junk = Regex("""[|\[\](){}★☆●•◉✪➤]+""")
     private val spaces = Regex("""\s{2,}""")
 
@@ -78,6 +78,16 @@ object Naming {
 
     fun variantKey(raw: String): String =
         cleanChannelName(raw).lowercase().replace(Regex("""[^\p{L}\p{N}]+"""), "")
+
+    /**
+     * Identity of a channel *including* its source prefix ("NM:", "SS |"), minus quality tags.
+     * Only channels with the same source key are treated as quality variants of each other.
+     */
+    fun sourceKey(raw: String): String =
+        qualityTokens.replace(normalize(raw), " ").lowercase().filter { it.isLetterOrDigit() }
+
+    /** The provider's source/region tag shown on cards, e.g. "NM" for "NM: beIN 1". */
+    fun sourceTag(raw: String): String? = split(raw).code.takeIf { it.isNotEmpty() }
 
     fun qualityLabel(q: Int): String? = when (q) {
         3 -> "4K"

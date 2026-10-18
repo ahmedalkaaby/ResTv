@@ -3,6 +3,7 @@ package dev.k3be.restv.ui.live
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dev.k3be.restv.RestvApp
+import dev.k3be.restv.data.Naming
 import dev.k3be.restv.data.NowNext
 import dev.k3be.restv.data.db.CategoryPrefEntity
 import dev.k3be.restv.data.db.ChannelEntity
@@ -18,6 +19,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
@@ -46,18 +48,30 @@ data class Preview(
     val nowNext: NowNext?,
 )
 
-/** Folds HD/FHD/4K copies of a channel into one row. Input must be sorted best quality first. */
+/**
+ * Folds HD/FHD/4K copies of the *same* channel from the *same* source into one row.
+ * Different sources ("NM: beIN 1 4K" vs "SS: beIN 1 4K") stay separate, and so do
+ * same-quality duplicates, so every stream stays pickable.
+ */
 fun groupVariants(list: List<ChannelEntity>): List<ChannelRow> {
     val groups = LinkedHashMap<String, MutableList<ChannelEntity>>()
-    list.forEach { ch -> groups.getOrPut(ch.categoryId + "|" + ch.variantKey.ifEmpty { "id${ch.streamId}" }) { mutableListOf() } += ch }
-    return groups.values.map { g ->
-        val sorted = g.sortedByDescending { it.quality }
-        ChannelRow(sorted.first(), sorted.drop(1))
+    list.forEach { ch -> groups.getOrPut(ch.categoryId + "|" + Naming.sourceKey(ch.rawName)) { mutableListOf() } += ch }
+    val out = ArrayList<ChannelRow>(list.size)
+    groups.values.forEach { g ->
+        val uniqueQualities = g.map { it.quality }.toSet().size == g.size
+        if (g.size > 1 && uniqueQualities) {
+            val sorted = g.sortedByDescending { it.quality }
+            out += ChannelRow(sorted.first(), sorted.drop(1))
+        } else {
+            g.forEach { out += ChannelRow(it, emptyList()) }
+        }
     }
+    return out
 }
 
 const val FAV_ID = "__fav"
 const val UHD_ID = "__4k"
+const val RECENT_ID = "__recent"
 
 @OptIn(ExperimentalCoroutinesApi::class, FlowPreview::class)
 class LiveViewModel(
@@ -71,6 +85,10 @@ class LiveViewModel(
 
     private val favorites = live.observeFavorites(accountId, loginId)
     private val uhd = live.observe4k(loginId)
+    private val recent = app.prefs.recent(loginId).map { ids ->
+        if (ids.isEmpty()) emptyList()
+        else live.byIds(loginId, ids).let { found -> val m = found.associateBy { it.streamId }; ids.mapNotNull { m[it] } }
+    }
 
     val favoriteIds: StateFlow<Set<Long>> = prefs.observeFavoriteIds(accountId, loginId)
         .map { it.toSet() }
@@ -110,9 +128,10 @@ class LiveViewModel(
         .map { list -> list.count { it.hidden } }
         .stateIn(viewModelScope, SharingStarted.Eagerly, 0)
 
-    private val specials: StateFlow<List<CatItem>> = combine(favorites, uhd) { f, u ->
+    private val specials: StateFlow<List<CatItem>> = combine(favorites, uhd, recent) { f, u, r ->
         buildList {
             add(CatItem(FAV_ID, "Favourites", "", f.size, special = true))
+            if (r.isNotEmpty()) add(CatItem(RECENT_ID, "Recently watched", "", r.size, special = true))
             if (u.isNotEmpty()) add(CatItem(UHD_ID, "4K channels", "", u.size, special = true))
         }
     }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
@@ -138,6 +157,7 @@ class LiveViewModel(
                 null -> flowOf(emptyList())
                 FAV_ID -> favorites.map { list -> list.map { ChannelRow(it, emptyList()) } }
                 UHD_ID -> uhd.map { list -> list.map { ChannelRow(it, emptyList()) } }
+                RECENT_ID -> recent.map { list -> list.map { ChannelRow(it, emptyList()) } }
                 else -> live.observeChannels(loginId, id).map { groupVariants(it) }
             }
         }
@@ -198,7 +218,7 @@ class LiveViewModel(
     fun select(id: String) {
         if (_movingId.value != null) return
         _selected.value = id
-        if (id != FAV_ID && id != UHD_ID) app.prefs.setLastCategory(loginId, id)
+        if (id != FAV_ID && id != UHD_ID && id != RECENT_ID) app.prefs.setLastCategory(loginId, id)
     }
 
     fun focusChannel(row: ChannelRow, neighbours: List<ChannelRow>) {
@@ -218,6 +238,21 @@ class LiveViewModel(
             }
         }
     }
+
+    /** One-shot channel rows for any category, used by the player's category browser. */
+    suspend fun rowsFor(id: String): List<ChannelRow> = when (id) {
+        FAV_ID -> live.observeFavorites(accountId, loginId).first().map { ChannelRow(it, emptyList()) }
+        UHD_ID -> live.observe4k(loginId).first().map { ChannelRow(it, emptyList()) }
+        RECENT_ID -> recent.first().map { ChannelRow(it, emptyList()) }
+        else -> groupVariants(live.observeChannels(loginId, id).first())
+    }
+
+    /** "Sports · United Kingdom" for each category id. */
+    val categoryNames: StateFlow<Map<String, String>> = live.observeCategories(loginId).map { list ->
+        list.associate { c -> c.categoryId to listOf(c.name, c.groupLabel).filter { it.isNotBlank() && it != "Other" }.joinToString(" · ") }
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyMap())
+
+    fun recordWatched(streamId: Long) = app.prefs.addRecent(loginId, streamId)
 
     fun toggleFavorite(ch: ChannelEntity) {
         viewModelScope.launch {
