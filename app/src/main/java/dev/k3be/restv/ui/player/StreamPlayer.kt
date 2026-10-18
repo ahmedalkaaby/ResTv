@@ -62,7 +62,11 @@ class StreamPlayer(
     userAgent: String,
     private val scope: CoroutineScope,
     private val onFormatChanged: (key: Long, format: String) -> Unit,
+    /** Called when a stream keeps failing, so the caller can try another quality of the same channel. */
+    private val onGiveUp: (key: Long) -> Unit = {},
 ) {
+    /** Failures allowed before giving up. Lower when a fallback quality exists. */
+    var giveUpAfter: Int = 10
     val player: ExoPlayer
 
     private val _status = MutableStateFlow<PlayStatus>(PlayStatus.Starting)
@@ -145,8 +149,9 @@ class StreamPlayer(
         if (retryJob?.isActive == true) return
         failures++
         val src = source ?: return
-        if (failures > 10) {
+        if (failures > giveUpAfter) {
             _status.value = PlayStatus.Failed("This channel isn't responding. $reason")
+            onGiveUp(src.key)
             return
         }
         // After three failures on MPEG-TS, try HLS and keep whichever works for this channel.

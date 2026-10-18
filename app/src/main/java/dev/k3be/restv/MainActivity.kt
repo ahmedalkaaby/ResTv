@@ -1,5 +1,6 @@
 package dev.k3be.restv
 
+import android.app.Activity
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
@@ -7,16 +8,27 @@ import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import dev.k3be.restv.ui.components.Toast
 import dev.k3be.restv.ui.live.LiveScreen
 import dev.k3be.restv.ui.onboarding.OnboardingScreen
 import dev.k3be.restv.ui.player.PlayerScreen
 import dev.k3be.restv.ui.settings.SettingsScreen
 import dev.k3be.restv.ui.theme.C
+import dev.k3be.restv.ui.theme.S
+import kotlinx.coroutines.delay
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -25,13 +37,27 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+/** How long a second Back press counts as confirming the first. */
+const val BACK_CONFIRM_MS = 2_000L
+
 @Composable
 fun AppRoot(vm: AppViewModel = viewModel()) {
     val route by vm.route.collectAsStateWithLifecycle()
     val session by vm.session.collectAsStateWithLifecycle()
     val sync by vm.sync.collectAsStateWithLifecycle()
+    val activity = LocalContext.current as? Activity
 
-    BackHandler(enabled = route is Route.Player || route is Route.Settings) { vm.back() }
+    var lastBack by remember { mutableLongStateOf(0L) }
+    var exitHint by remember { mutableStateOf(false) }
+    LaunchedEffect(exitHint) { if (exitHint) { delay(BACK_CONFIRM_MS); exitHint = false } }
+
+    BackHandler(enabled = route is Route.Settings) { vm.back() }
+    // Leaving the app takes two presses, so a stray Back never closes it.
+    BackHandler(enabled = route is Route.Live || route is Route.Onboarding) {
+        val now = System.currentTimeMillis()
+        if (now - lastBack < BACK_CONFIRM_MS) activity?.finish()
+        else { lastBack = now; exitHint = true }
+    }
 
     Box(Modifier.fillMaxSize().background(C.bg000)) {
         when (val r = route) {
@@ -49,8 +75,11 @@ fun AppRoot(vm: AppViewModel = viewModel()) {
                 SettingsScreen(session = s, sync = sync, onSync = vm::syncNow, onOpenLive = { vm.go(Route.Live) })
             }
             is Route.Player -> session?.let { s ->
-                PlayerScreen(session = s, channels = r.channels, startIndex = r.index, onExit = { vm.back() })
+                PlayerScreen(session = s, rows = r.channels, startIndex = r.index, onExit = { vm.back() })
             }
+        }
+        if (exitHint) {
+            Toast("Press Back again to exit", Modifier.align(Alignment.BottomCenter).padding(bottom = S.safeY + S.s4))
         }
     }
 }

@@ -4,9 +4,9 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import dev.k3be.restv.data.db.AccountEntity
-import dev.k3be.restv.data.db.ChannelEntity
 import dev.k3be.restv.data.db.LoginEntity
 import dev.k3be.restv.data.xtream.XtreamClient
+import dev.k3be.restv.ui.live.ChannelRow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collectLatest
@@ -21,7 +21,7 @@ sealed interface Route {
     data object Onboarding : Route
     data object Live : Route
     data object Settings : Route
-    data class Player(val channels: List<ChannelEntity>, val index: Int) : Route
+    data class Player(val channels: List<ChannelRow>, val index: Int) : Route
 }
 
 sealed interface SyncState {

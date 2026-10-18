@@ -9,11 +9,17 @@ import dev.k3be.restv.data.db.ChannelEntity
 import dev.k3be.restv.data.db.FavoriteEntity
 import dev.k3be.restv.data.db.LoginEntity
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -27,16 +33,23 @@ data class CatItem(
     val special: Boolean = false,
 )
 
+/**
+ * One row in the channel list. "Sports 1 HD", "Sports 1 FHD" and "Sports 1 4K" become one row;
+ * [main] is the best quality, [others] the rest, best first (used for automatic fallback).
+ */
+data class ChannelRow(val main: ChannelEntity, val others: List<ChannelEntity>) {
+    val streamId: Long get() = main.streamId
+}
+
 data class Preview(
-    val channel: ChannelEntity,
+    val row: ChannelRow,
     val nowNext: NowNext?,
-    val variants: List<ChannelEntity>,
 )
 
 const val FAV_ID = "__fav"
 const val UHD_ID = "__4k"
 
-@OptIn(ExperimentalCoroutinesApi::class)
+@OptIn(ExperimentalCoroutinesApi::class, FlowPreview::class)
 class LiveViewModel(
     private val app: RestvApp,
     private val accountId: Long,
@@ -53,7 +66,7 @@ class LiveViewModel(
         .map { it.toSet() }
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptySet())
 
-    /** Normal (non-special) categories, ordered by the user's saved order, else grouped by country. */
+    /** Normal categories, ordered by the user's saved order, else grouped by country. */
     private val ordered: StateFlow<List<CatItem>> = combine(
         live.observeCategories(loginId),
         prefs.observeCategoryPrefs(accountId, loginId),
@@ -102,48 +115,82 @@ class LiveViewModel(
     val categories: StateFlow<List<CatItem>> = combine(specials, ordered, _movingList) { s, o, m -> s + (m ?: o) }
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
+    /** Highlighted category: follows focus instantly. */
     private val _selected = MutableStateFlow<String?>(null)
     val selected: StateFlow<String?> = _selected
 
-    val channels: StateFlow<List<ChannelEntity>> = _selected.flatMapLatest { id ->
-        when (id) {
-            null -> kotlinx.coroutines.flow.flowOf(emptyList())
-            FAV_ID -> favorites
-            UHD_ID -> uhd
-            else -> live.observeChannels(loginId, id)
+    /** Channels load only once focus rests on a category, so scrolling the list stays smooth. */
+    val channels: StateFlow<List<ChannelRow>> = _selected
+        .debounce(220)
+        .distinctUntilChanged()
+        .flatMapLatest { id ->
+            when (id) {
+                null -> flowOf(emptyList())
+                FAV_ID -> favorites.map { list -> list.map { ChannelRow(it, emptyList()) } }
+                UHD_ID -> uhd.map { list -> list.map { ChannelRow(it, emptyList()) } }
+                else -> live.observeChannels(loginId, id).map(::groupVariants)
+            }
         }
-    }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     private val _preview = MutableStateFlow<Preview?>(null)
     val preview: StateFlow<Preview?> = _preview
+
+    /** "Now" programme titles for rows near the focused one. */
+    private val _nowTitles = MutableStateFlow<Map<Long, String>>(emptyMap())
+    val nowTitles: StateFlow<Map<Long, String>> = _nowTitles
 
     /** Remembered so focus returns to the same channel after the player closes. */
     var lastFocusedStreamId: Long? = null
         private set
 
+    private var epgJob: Job? = null
+
     init {
         viewModelScope.launch {
-            // Pick a sensible starting category once data arrives: Favourites if any, else the first real one.
+            // Start where the user left off last time; else Favourites if any; else the first category.
             categories.collect { list ->
                 if (_selected.value == null && list.isNotEmpty()) {
+                    val saved = app.prefs.lastCategory(loginId)
                     val fav = list.firstOrNull { it.id == FAV_ID }
-                    _selected.value = if (fav != null && fav.count > 0) FAV_ID else list.firstOrNull { !it.special }?.id ?: list.first().id
+                    _selected.value = when {
+                        saved != null && list.any { it.id == saved } -> saved
+                        fav != null && fav.count > 0 -> FAV_ID
+                        else -> list.firstOrNull { !it.special }?.id ?: list.first().id
+                    }
                 }
             }
         }
     }
 
-    fun select(id: String) {
-        if (_movingId.value == null) _selected.value = id
+    private fun groupVariants(list: List<ChannelEntity>): List<ChannelRow> {
+        // The query returns best quality first, so the first of each variant group is the best one.
+        val groups = LinkedHashMap<String, MutableList<ChannelEntity>>()
+        list.forEach { ch -> groups.getOrPut(ch.variantKey.ifEmpty { "id${ch.streamId}" }) { mutableListOf() } += ch }
+        return groups.values.map { g -> ChannelRow(g.first(), g.drop(1)) }
     }
 
-    fun focusChannel(ch: ChannelEntity) {
-        lastFocusedStreamId = ch.streamId
-        _preview.value = Preview(ch, app.epg.peek(ch.streamId), _preview.value?.takeIf { it.channel.variantKey == ch.variantKey }?.variants ?: emptyList())
-        viewModelScope.launch {
-            val variants = live.variants(loginId, ch.variantKey)
-            val nn = app.epg.nowNext(login, ch.streamId)
-            if (_preview.value?.channel?.streamId == ch.streamId) _preview.value = Preview(ch, nn, variants)
+    fun select(id: String) {
+        if (_movingId.value != null) return
+        _selected.value = id
+        if (id != FAV_ID && id != UHD_ID) app.prefs.setLastCategory(loginId, id)
+    }
+
+    fun focusChannel(row: ChannelRow, neighbours: List<ChannelRow>) {
+        lastFocusedStreamId = row.streamId
+        _preview.value = Preview(row, app.epg.peek(row.streamId))
+        epgJob?.cancel()
+        epgJob = viewModelScope.launch {
+            delay(300) // wait for focus to rest before touching the network
+            val nn = app.epg.nowNext(login, row.streamId)
+            if (_preview.value?.row?.streamId == row.streamId) _preview.value = Preview(row, nn)
+            nn.now?.title?.takeIf { it.isNotBlank() }?.let { _nowTitles.value = _nowTitles.value + (row.streamId to it) }
+            // Then fill in the rows around it, one request at a time.
+            for (n in neighbours) {
+                if (n.streamId in _nowTitles.value) continue
+                val title = app.epg.nowNext(login, n.streamId).now?.title
+                if (!title.isNullOrBlank()) _nowTitles.value = _nowTitles.value + (n.streamId to title)
+            }
         }
     }
 

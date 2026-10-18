@@ -236,6 +236,18 @@ fun ProgressBar(fraction: Float, modifier: Modifier = Modifier, height: Dp = 4.d
     }
 }
 
+/** A short message chip; never takes focus. */
+@Composable
+fun Toast(text: String, modifier: Modifier = Modifier, color: Color = C.ink) {
+    Box(
+        modifier
+            .clip(RoundedCornerShape(50))
+            .background(C.bg100.copy(alpha = 0.95f))
+            .border(1.dp, C.line, RoundedCornerShape(50))
+            .padding(horizontal = 18.dp, vertical = 10.dp),
+    ) { Txt(text, T.label, color = color) }
+}
+
 @Composable
 fun SectionLabel(text: String, modifier: Modifier = Modifier) {
     Txt(text.uppercase(), T.section, modifier = modifier)

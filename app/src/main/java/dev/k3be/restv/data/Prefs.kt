@@ -18,6 +18,12 @@ class Prefs(context: Context) {
     )
     val agent: StateFlow<Agent> = _agent
 
+    fun lastCategory(loginId: Long): String? = sp.getString("lastCat_$loginId", null)
+
+    fun setLastCategory(loginId: Long, categoryId: String) {
+        sp.edit().putString("lastCat_$loginId", categoryId).apply()
+    }
+
     fun setAgent(a: Agent) {
         sp.edit().putString("agent", a.name).apply()
         _agent.value = a
