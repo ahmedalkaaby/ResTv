@@ -1,6 +1,8 @@
 package dev.k3be.restv.ui.settings
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -17,6 +19,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
@@ -35,6 +38,7 @@ import dev.k3be.restv.ui.components.Txt
 import dev.k3be.restv.ui.live.Sidebar
 import dev.k3be.restv.ui.live.SidebarItem
 import dev.k3be.restv.ui.live.rememberLiveViewModel
+import dev.k3be.restv.ui.onboarding.TvTextField
 import dev.k3be.restv.ui.theme.C
 import dev.k3be.restv.ui.theme.S
 import dev.k3be.restv.ui.theme.T
@@ -54,7 +58,7 @@ private sealed interface UpdateState {
 }
 
 @Composable
-fun SettingsScreen(session: Session, sync: SyncState, onSync: () -> Unit, onOpenLive: () -> Unit) {
+fun SettingsScreen(session: Session, sync: SyncState, onSync: () -> Unit, onNavigate: (SidebarItem) -> Unit) {
     val app = LocalContext.current.applicationContext as RestvApp
     val live = rememberLiveViewModel(session)
     val hidden by live.hiddenCount.collectAsStateWithLifecycle()
@@ -94,9 +98,9 @@ fun SettingsScreen(session: Session, sync: SyncState, onSync: () -> Unit, onOpen
     }
 
     Row(Modifier.fillMaxSize()) {
-        Sidebar(active = SidebarItem.Settings, onSelect = { if (it == SidebarItem.Live) onOpenLive() })
+        Sidebar(active = SidebarItem.Settings, onSelect = { if (it != SidebarItem.Settings) onNavigate(it) })
         Column(
-            Modifier.fillMaxHeight().padding(start = 24.dp, top = S.safeY, end = S.safeX),
+            Modifier.fillMaxHeight().verticalScroll(rememberScrollState()).padding(start = 24.dp, top = S.safeY, end = S.safeX, bottom = S.safeY),
             verticalArrangement = Arrangement.spacedBy(S.s3),
         ) {
             Txt("Settings", T.titleLg)
@@ -119,6 +123,18 @@ fun SettingsScreen(session: Session, sync: SyncState, onSync: () -> Unit, onOpen
                     if (hidden > 0) TvButton("Show hidden categories ($hidden)", onClick = live::unhideAll)
                 }
                 if (sync is SyncState.Failed) Txt(sync.message, T.caption, color = C.danger, maxLines = 2)
+            }
+
+            Card {
+                SectionLabel("Commentary audio")
+                val sourceCount = remember { app.audioSources.list().size }
+                var token by remember { mutableStateOf(app.prefs.audioToken() ?: app.audioSources.bundledToken) }
+                var saved by remember { mutableStateOf(false) }
+                Txt("Anis FM playlist · $sourceCount sources. While watching, hold OK to pick one.", T.body, color = C.inkMuted, maxLines = 2)
+                Row(horizontalArrangement = Arrangement.spacedBy(S.s2), verticalAlignment = Alignment.Bottom) {
+                    Column(Modifier.width(360.dp)) { TvTextField("Playlist token", token, { token = it; saved = false }) }
+                    TvButton(if (saved) "Saved" else "Save token") { app.prefs.setAudioToken(token); saved = true }
+                }
             }
 
             Card {

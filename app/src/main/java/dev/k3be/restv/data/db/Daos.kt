@@ -71,6 +71,18 @@ interface LiveDao {
     @Query("SELECT * FROM channel WHERE loginId = :loginId AND variantKey = :key ORDER BY quality DESC")
     suspend fun variants(loginId: Long, key: String): List<ChannelEntity>
 
+    /** Name search across every category, best quality first. */
+    @Query(
+        """SELECT * FROM channel WHERE loginId = :loginId
+           AND (name LIKE '%' || :q || '%' OR rawName LIKE '%' || :q || '%')
+           ORDER BY CASE WHEN name LIKE :q || '%' THEN 0 ELSE 1 END, quality DESC, name
+           LIMIT 300"""
+    )
+    suspend fun search(loginId: Long, q: String): List<ChannelEntity>
+
+    @Query("SELECT * FROM live_category WHERE loginId = :loginId")
+    suspend fun categories(loginId: Long): List<LiveCategoryEntity>
+
     @Query("SELECT COUNT(*) FROM channel WHERE loginId = :loginId")
     suspend fun countChannels(loginId: Long): Int
 }

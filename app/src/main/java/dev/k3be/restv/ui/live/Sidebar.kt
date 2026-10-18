@@ -36,6 +36,7 @@ import dev.k3be.restv.ui.theme.S
 import dev.k3be.restv.ui.theme.T
 
 enum class SidebarItem(val label: String, val icon: ImageVector) {
+    Search("Search", Icons.search),
     Live("Live TV", Icons.live),
     Settings("Settings", Icons.settings),
 }
@@ -54,6 +55,8 @@ fun Sidebar(active: SidebarItem, onSelect: (SidebarItem) -> Unit) {
             .padding(vertical = S.safeY, horizontal = 12.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
+        NavItem(SidebarItem.Search, active == SidebarItem.Search, expanded) { onSelect(SidebarItem.Search) }
+        Spacer(Modifier.height(12.dp))
         NavItem(SidebarItem.Live, active == SidebarItem.Live, expanded) { onSelect(SidebarItem.Live) }
         Spacer(Modifier.weight(1f))
         NavItem(SidebarItem.Settings, active == SidebarItem.Settings, expanded) { onSelect(SidebarItem.Settings) }

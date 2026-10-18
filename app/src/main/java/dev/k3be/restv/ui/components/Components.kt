@@ -285,6 +285,8 @@ object Icons {
             .addPath(pathData = PathParser().parsePathString(d).toNodes(), fill = SolidColor(Color.White))
             .build()
 
+    val audio = stroke("audio", "M4 16v-4a8 8 0 0 1 16 0v4", "M5 14h1.5a1.5 1.5 0 0 1 1.5 1.5v3a1.5 1.5 0 0 1 -1.5 1.5h-1.5a1 1 0 0 1 -1 -1v-4a1 1 0 0 1 1 -1z", "M17.5 14h1.5a1 1 0 0 1 1 1v4a1 1 0 0 1 -1 1h-1.5a1.5 1.5 0 0 1 -1.5 -1.5v-3a1.5 1.5 0 0 1 1.5 -1.5z")
+    val search = stroke("search", "M4 11a7 7 0 1 0 14 0a7 7 0 1 0 -14 0", "M20 20l-4.2 -4.2")
     val live = stroke("live", "M5 7h14a2 2 0 0 1 2 2v9a2 2 0 0 1 -2 2h-14a2 2 0 0 1 -2 -2v-9a2 2 0 0 1 2 -2z", "M8 3l4 4 4 -4")
     val settings = stroke("settings", "M8.5 12a3.5 3.5 0 1 0 7 0a3.5 3.5 0 1 0 -7 0", "M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1l2.1 -2.1M17 7l2.1 -2.1")
     val star = solid("star", "M12 3l2.7 5.6 6.1 .9 -4.4 4.3 1 6.1L12 17l-5.4 2.9 1 -6.1L3.2 9.5l6.1 -.9z")

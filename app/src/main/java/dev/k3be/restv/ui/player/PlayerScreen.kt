@@ -122,7 +122,14 @@ fun PlayerScreen(
             variant++
         }
     }
-    DisposableEffect(Unit) { onDispose { sp.release() } }
+    val commentary = remember { CommentaryPlayer(context, app.http, agent.value, scope) }
+    val sources = remember { app.audioSources.list() }
+    DisposableEffect(Unit) { onDispose { sp.release(); commentary.release() } }
+    var commentaryOpen by remember { mutableStateOf(false) }
+    var channelLevel by remember { mutableStateOf(app.prefs.channelSoundLevel()) }
+    val commentaryState by commentary.state.collectAsStateWithLifecycle()
+    val commentaryDelay by commentary.delayMs.collectAsStateWithLifecycle()
+    val commentaryOn = commentaryState !is CommentaryState.Off
 
     var overlayToken by remember { mutableIntStateOf(1) }
     var overlayVisible by remember { mutableStateOf(true) }
@@ -152,6 +159,20 @@ fun PlayerScreen(
         nowNext = app.epg.peek(ch.streamId)
         nowNext = app.epg.nowNext(session.login, ch.streamId)
     }
+    // With commentary on, the channel's own sound drops to the chosen level (default off).
+    LaunchedEffect(commentaryOn, channelLevel) { sp.player.volume = if (commentaryOn) channelLevel else 1f }
+    // Switching channel loads the delay remembered for this channel with the current source.
+    LaunchedEffect(index, variant) {
+        val src = commentary.source ?: return@LaunchedEffect
+        val ch = channel ?: return@LaunchedEffect
+        app.prefs.commentaryDelayMs(ch.streamId, src.id)?.let { commentary.setDelay(it) }
+    }
+    fun saveDelay() {
+        val src = commentary.source ?: return
+        val ch = channel ?: return
+        app.prefs.setCommentaryDelayMs(ch.streamId, src.id, commentary.delayMs.value)
+        app.prefs.setLastDelayMs(src.id, commentary.delayMs.value)
+    }
     LaunchedEffect(overlayToken) {
         overlayVisible = true
         delay(5_000)
@@ -161,11 +182,13 @@ fun PlayerScreen(
     LaunchedEffect(exitHint) { if (exitHint) { delay(BACK_CONFIRM_MS); exitHint = false } }
 
     val focus = remember { FocusRequester() }
-    LaunchedEffect(listOpen) { if (!listOpen) runCatching { focus.requestFocus() } }
+    LaunchedEffect(listOpen, commentaryOpen) { if (!listOpen && !commentaryOpen) runCatching { focus.requestFocus() } }
 
     // Back closes the channel list first; closing the channel itself takes two presses.
     BackHandler {
-        if (listOpen) {
+        if (commentaryOpen) {
+            commentaryOpen = false
+        } else if (listOpen) {
             listOpen = false
         } else {
             val now = System.currentTimeMillis()
@@ -180,12 +203,15 @@ fun PlayerScreen(
             .focusRequester(focus)
             .focusable()
             .onKeyEvent { ev ->
-                if (listOpen || ev.type != KeyEventType.KeyDown) return@onKeyEvent false
+                if (listOpen || commentaryOpen || ev.type != KeyEventType.KeyDown) return@onKeyEvent false
                 when (ev.key) {
                     // Up/Down and OK only show the info bar: no accidental channel changes.
                     Key.DirectionUp, Key.DirectionDown -> { overlayToken++; true }
                     Key.DirectionCenter, Key.Enter, Key.NumPadEnter -> {
-                        if (overlayVisible) overlayVisible = false else overlayToken++
+                        when (ev.nativeKeyEvent.repeatCount) {
+                            0 -> if (overlayVisible) overlayVisible = false else overlayToken++
+                            1 -> commentaryOpen = true // hold OK
+                        }
                         true
                     }
                     Key.DirectionLeft -> { listOpen = true; true }
@@ -237,6 +263,29 @@ fun PlayerScreen(
                     overlayToken++
                 },
                 modifier = Modifier.align(Alignment.CenterStart),
+            )
+        }
+
+        if (commentaryOn && !commentaryOpen) {
+            CommentaryChip(commentary.source?.name ?: "", commentaryState, Modifier.align(Alignment.TopStart).padding(top = S.safeY, start = S.safeX))
+        }
+
+        if (commentaryOpen) {
+            CommentaryPanel(
+                sources = sources,
+                active = commentary.source,
+                state = commentaryState,
+                delayMs = commentaryDelay,
+                channelLevel = channelLevel,
+                onPick = { src ->
+                    val start = channel?.let { app.prefs.commentaryDelayMs(it.streamId, src.id) }
+                        ?: app.prefs.lastDelayMs(src.id) ?: 75_000L
+                    commentary.start(src, start)
+                },
+                onNudge = { d -> commentary.nudge(d); saveDelay() },
+                onChannelLevel = { l -> channelLevel = l; app.prefs.setChannelSoundLevel(l) },
+                onOff = { commentary.stop() },
+                modifier = Modifier.align(Alignment.CenterEnd),
             )
         }
 
@@ -380,6 +429,7 @@ private fun InfoOverlay(
             }
             Row(horizontalArrangement = Arrangement.spacedBy(S.s4)) {
                 Hint("◀", "Channels")
+                Hint("HOLD OK", "Commentary")
                 Hint("▶", "Aspect")
                 Hint("OK", "Hide info")
                 Hint("BACK ×2", "Close")

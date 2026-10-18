@@ -81,6 +81,7 @@ fun LiveScreen(
     sync: SyncState,
     onPlay: (List<ChannelRow>, Int) -> Unit,
     onOpenSettings: () -> Unit,
+    onOpenSearch: () -> Unit,
 ) {
     val vm = rememberLiveViewModel(session)
     val categories by vm.categories.collectAsStateWithLifecycle()
@@ -92,7 +93,13 @@ fun LiveScreen(
     val nowTitles by vm.nowTitles.collectAsStateWithLifecycle()
 
     Row(Modifier.fillMaxSize()) {
-        Sidebar(active = SidebarItem.Live, onSelect = { if (it == SidebarItem.Settings) onOpenSettings() })
+        Sidebar(active = SidebarItem.Live, onSelect = {
+            when (it) {
+                SidebarItem.Settings -> onOpenSettings()
+                SidebarItem.Search -> onOpenSearch()
+                SidebarItem.Live -> {}
+            }
+        })
         CategoriesPane(
             vm = vm,
             categories = categories,
@@ -327,7 +334,7 @@ private fun ChannelsPane(
 }
 
 @Composable
-private fun ChannelRowContent(row: ChannelRow, favorite: Boolean, nowTitle: String?) {
+internal fun ChannelRowContent(row: ChannelRow, favorite: Boolean, nowTitle: String?) {
     val ch = row.main
     Row(
         Modifier.fillMaxWidth().padding(horizontal = 12.dp),

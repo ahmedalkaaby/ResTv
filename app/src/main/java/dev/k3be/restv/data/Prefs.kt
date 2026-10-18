@@ -18,6 +18,33 @@ class Prefs(context: Context) {
     )
     val agent: StateFlow<Agent> = _agent
 
+    fun audioToken(): String? = sp.getString("audioToken", null)?.takeIf { it.isNotBlank() }
+
+    fun setAudioToken(token: String) {
+        sp.edit().putString("audioToken", token.trim()).apply()
+    }
+
+    /** Commentary delay remembered per channel + audio source pair. */
+    fun commentaryDelayMs(streamId: Long, sourceId: String): Long? =
+        sp.getLong("delay_${streamId}_$sourceId", -1L).takeIf { it >= 0 }
+
+    fun setCommentaryDelayMs(streamId: Long, sourceId: String, ms: Long) {
+        sp.edit().putLong("delay_${streamId}_$sourceId", ms).apply()
+    }
+
+    /** Last delay used with this source on any channel: a good starting guess. */
+    fun lastDelayMs(sourceId: String): Long? = sp.getLong("delay_last_$sourceId", -1L).takeIf { it >= 0 }
+
+    fun setLastDelayMs(sourceId: String, ms: Long) {
+        sp.edit().putLong("delay_last_$sourceId", ms).apply()
+    }
+
+    fun channelSoundLevel(): Float = sp.getFloat("channelSound", 0f)
+
+    fun setChannelSoundLevel(level: Float) {
+        sp.edit().putFloat("channelSound", level).apply()
+    }
+
     fun lastCategory(loginId: Long): String? = sp.getString("lastCat_$loginId", null)
 
     fun setLastCategory(loginId: Long, categoryId: String) {

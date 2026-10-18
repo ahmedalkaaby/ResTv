@@ -46,6 +46,16 @@ data class Preview(
     val nowNext: NowNext?,
 )
 
+/** Folds HD/FHD/4K copies of a channel into one row. Input must be sorted best quality first. */
+fun groupVariants(list: List<ChannelEntity>): List<ChannelRow> {
+    val groups = LinkedHashMap<String, MutableList<ChannelEntity>>()
+    list.forEach { ch -> groups.getOrPut(ch.categoryId + "|" + ch.variantKey.ifEmpty { "id${ch.streamId}" }) { mutableListOf() } += ch }
+    return groups.values.map { g ->
+        val sorted = g.sortedByDescending { it.quality }
+        ChannelRow(sorted.first(), sorted.drop(1))
+    }
+}
+
 const val FAV_ID = "__fav"
 const val UHD_ID = "__4k"
 
@@ -128,7 +138,7 @@ class LiveViewModel(
                 null -> flowOf(emptyList())
                 FAV_ID -> favorites.map { list -> list.map { ChannelRow(it, emptyList()) } }
                 UHD_ID -> uhd.map { list -> list.map { ChannelRow(it, emptyList()) } }
-                else -> live.observeChannels(loginId, id).map(::groupVariants)
+                else -> live.observeChannels(loginId, id).map { groupVariants(it) }
             }
         }
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
@@ -161,13 +171,6 @@ class LiveViewModel(
                 }
             }
         }
-    }
-
-    private fun groupVariants(list: List<ChannelEntity>): List<ChannelRow> {
-        // The query returns best quality first, so the first of each variant group is the best one.
-        val groups = LinkedHashMap<String, MutableList<ChannelEntity>>()
-        list.forEach { ch -> groups.getOrPut(ch.variantKey.ifEmpty { "id${ch.streamId}" }) { mutableListOf() } += ch }
-        return groups.values.map { g -> ChannelRow(g.first(), g.drop(1)) }
     }
 
     fun select(id: String) {

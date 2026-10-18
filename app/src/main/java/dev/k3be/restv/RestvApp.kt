@@ -1,6 +1,7 @@
 package dev.k3be.restv
 
 import android.app.Application
+import dev.k3be.restv.data.AudioSources
 import dev.k3be.restv.data.EpgCache
 import dev.k3be.restv.data.Prefs
 import dev.k3be.restv.data.SyncEngine
@@ -39,4 +40,5 @@ class RestvApp : Application() {
     val epg: EpgCache by lazy { EpgCache(xtream) }
     val prefs: Prefs by lazy { Prefs(this) }
     val updater: Updater by lazy { Updater(this, http, json) }
+    val audioSources: AudioSources by lazy { AudioSources(this, prefs) }
 }
