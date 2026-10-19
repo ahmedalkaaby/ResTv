@@ -21,7 +21,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.compose.runtime.key
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import dev.k3be.restv.ui.components.Toast
+import dev.k3be.restv.ui.vod.MovieDetailScreen
+import dev.k3be.restv.ui.vod.SeriesDetailScreen
+import dev.k3be.restv.ui.vod.VodGridScreen
+import dev.k3be.restv.ui.vod.VodHomeScreen
+import dev.k3be.restv.ui.vod.VodPlayerScreen
 import dev.k3be.restv.ui.live.LiveScreen
 import dev.k3be.restv.ui.live.SidebarItem
 import dev.k3be.restv.ui.search.SearchScreen
@@ -54,12 +61,16 @@ fun AppRoot(vm: AppViewModel = viewModel()) {
     var exitHint by remember { mutableStateOf(false) }
     LaunchedEffect(exitHint) { if (exitHint) { delay(BACK_CONFIRM_MS); exitHint = false } }
 
-    BackHandler(enabled = route is Route.Settings || route is Route.Search || route is Route.Matches) { vm.back() }
+    // Every screen except Live, onboarding and the players: Back goes one step back.
+    BackHandler(enabled = route !is Route.Live && route !is Route.Onboarding && route !is Route.Player && route !is Route.VodPlayer) { vm.back() }
+    val saveable = rememberSaveableStateHolder()
     val navigate: (SidebarItem) -> Unit = { item ->
         vm.go(
             when (item) {
                 SidebarItem.Search -> Route.Search
                 SidebarItem.Live -> Route.Live
+                SidebarItem.Movies -> Route.Movies
+                SidebarItem.Series -> Route.Series
                 SidebarItem.Matches -> Route.Matches
                 SidebarItem.Settings -> Route.Settings
             }
@@ -88,6 +99,7 @@ fun AppRoot(vm: AppViewModel = viewModel()) {
                 SearchScreen(
                     session = s,
                     onPlay = { list, index -> vm.go(Route.Player(list, index)) },
+                    onOpenVod = { c -> vm.go(if (c.kind == "movie") Route.MovieDetail(c.id) else Route.SeriesDetail(c.id)) },
                     onNavigate = navigate,
                 )
             }
@@ -100,6 +112,34 @@ fun AppRoot(vm: AppViewModel = viewModel()) {
             }
             Route.Settings -> session?.let { s ->
                 SettingsScreen(session = s, sync = sync, onSync = vm::syncNow, onNavigate = navigate)
+            }
+            Route.Movies, Route.Series -> session?.let { s ->
+                val kind = if (r == Route.Movies) "movie" else "series"
+                saveable.SaveableStateProvider(kind) {
+                    VodHomeScreen(
+                        session = s,
+                        kind = kind,
+                        sync = sync,
+                        onDownload = vm::syncVodNow,
+                        onOpen = { c -> vm.go(if (c.kind == "movie") Route.MovieDetail(c.id) else Route.SeriesDetail(c.id)) },
+                        onSeeAll = { rail -> vm.go(Route.VodGrid(kind, rail.id, rail.title)) },
+                        onNavigate = navigate,
+                    )
+                }
+            }
+            is Route.VodGrid -> session?.let { s ->
+                VodGridScreen(s, r.kind, r.railId, r.title) { c ->
+                    vm.go(if (c.kind == "movie") Route.MovieDetail(c.id) else Route.SeriesDetail(c.id))
+                }
+            }
+            is Route.MovieDetail -> session?.let { s ->
+                key(r.id) { MovieDetailScreen(s, r.id) { q, i, fresh -> vm.go(Route.VodPlayer(q, i, fresh)) } }
+            }
+            is Route.SeriesDetail -> session?.let { s ->
+                key(r.id) { SeriesDetailScreen(s, r.id) { q, i, fresh -> vm.go(Route.VodPlayer(q, i, fresh)) } }
+            }
+            is Route.VodPlayer -> session?.let { s ->
+                key(r) { VodPlayerScreen(s, r.queue, r.index, r.fromStart, onExit = { vm.back() }) }
             }
             is Route.Player -> session?.let { s ->
                 PlayerScreen(session = s, rows = r.channels, startIndex = r.index, onExit = { vm.back() })

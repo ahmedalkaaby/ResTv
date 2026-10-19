@@ -112,3 +112,57 @@ object Naming {
         else -> null
     }
 }
+
+/** Movie and series names: "EN - The Batman (2022) [4K]" → "The Batman", 2022. */
+object VodNaming {
+    private val yearParen = Regex("""[(\[]\s*((?:19|20)\d{2})\s*[)\]]""")
+    private val yearTail = Regex("""[\s\-–|:]+((?:19|20)\d{2})\s*$""")
+    private val brackets = Regex("""\[[^\]]*]|\{[^}]*}""")
+    private val tags = Regex("""(?i)(?<![A-Z0-9])(4K|UHD|2160P?|FHD|1080P?|HD|720P?|SD|HEVC|H\.?265|x265|HDR10?\+?|DV|DOLBY VISION|MULTI[- ]?SUBS?|MULTI[- ]?AUDIO|SUB(?:BED|S)?|DUBBED|VOSTFR)(?![A-Z0-9])""")
+    private val leadingTag = Regex("""^\s*(?:4K|UHD|FHD|HD|VIP|NF|AMZ|DSNP|ATVP|HMAX)\s*[|:\-–]+\s*""", RegexOption.IGNORE_CASE)
+
+    data class Parsed(val title: String, val year: Int?)
+
+    fun parse(raw: String, yearField: String? = null): Parsed {
+        var n = Naming.split(raw).name
+        n = leadingTag.replace(n, "")
+        n = Naming.split(n).name // double prefixes: "4K | EN - Title"
+        var year = yearField?.take(4)?.toIntOrNull()?.takeIf { it in 1900..2100 }
+        yearParen.find(n)?.let { m -> if (year == null) year = m.groupValues[1].toInt(); n = n.removeRange(m.range) }
+        n = brackets.replace(n, " ")
+        n = tags.replace(n, " ")
+        n = n.replace(Regex("""\s{2,}"""), " ").trim().trim('-', '|', ':', '.', ' ', '–')
+        yearTail.find(n)?.let { m ->
+            // Keep titles that are a year ("1917", "2012").
+            if (m.range.first > 0) { if (year == null) year = m.groupValues[1].toInt(); n = n.removeRange(m.range).trim() }
+        }
+        return Parsed(n.ifEmpty { Naming.split(raw).name.trim() }, year)
+    }
+
+    /** Key for matching titles across sources: no accents, articles, punctuation or spaces. */
+    fun key(title: String): String {
+        val folded = java.text.Normalizer.normalize(Naming.normalize(title), java.text.Normalizer.Form.NFD)
+            .replace(Regex("""\p{M}+"""), "")
+            .lowercase()
+            .replace("&", " and ")
+        return folded.split(Regex("""[^\p{L}\p{N}]+"""))
+            .filter { it.isNotEmpty() }
+            .let { if (it.size > 1 && it.first() in setOf("the", "a", "an")) it.drop(1) else it }
+            .joinToString("")
+    }
+
+    /** Streaming platform of a category name, in the order they're shown. */
+    val platforms = listOf("Apple TV+", "Netflix", "Disney+", "HBO", "OSN+")
+
+    fun platformOf(categoryName: String): String? {
+        val n = Naming.normalize(categoryName).lowercase()
+        return when {
+            "apple" in n -> "Apple TV+"
+            "netflix" in n -> "Netflix"
+            "disney" in n -> "Disney+"
+            "hbo" in n -> "HBO"
+            Regex("""(?<![a-z])osn""").containsMatchIn(n) -> "OSN+"
+            else -> null
+        }
+    }
+}

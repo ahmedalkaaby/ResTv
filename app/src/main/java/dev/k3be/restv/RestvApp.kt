@@ -3,6 +3,8 @@ package dev.k3be.restv
 import android.app.Application
 import dev.k3be.restv.data.AudioSources
 import dev.k3be.restv.data.EpgCache
+import dev.k3be.restv.data.ImdbCharts
+import dev.k3be.restv.data.VodRepo
 import dev.k3be.restv.data.MatchesRepo
 import dev.k3be.restv.data.Prefs
 import dev.k3be.restv.data.SyncEngine
@@ -42,5 +44,7 @@ class RestvApp : Application() {
     val prefs: Prefs by lazy { Prefs(this) }
     val updater: Updater by lazy { Updater(this, http, json) }
     val audioSources: AudioSources by lazy { AudioSources(this, prefs) }
+    val imdb: ImdbCharts by lazy { ImdbCharts(http, json, filesDir) }
+    val vod: VodRepo by lazy { VodRepo(db, xtream, imdb) }
     val matches: MatchesRepo by lazy { MatchesRepo(http, json, db, prefs, filesDir) }
 }

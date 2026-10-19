@@ -14,12 +14,14 @@ class LiveSoccerTvTest {
             <td><a href="/channels/1/" title="beIN Sports Arabia 5 HD (live stream available)">x</a>
                 <a href="/channels/2/">51 Kuwait (Algeria, Bahrain, Chad…)</a></td></tr>
         <tr><td>21:45</td><td><a href="/match/2/x/">Real Madrid v Barcelona</a></td><td><a href="/channels/3/">SSC 1</a></td></tr>
+        <tr><td>LIVE</td><td><a href="/match/inter-vs-napoli/abc">Inter 1 - 0 Napoli</a></td><td><a href="/channels/4/">beIN Sports 3</a></td></tr>
         </table>
     """.trimIndent()
 
     @Test fun parsesMatches() {
         val list = LiveSoccerTv(OkHttpClient()).parse(html, LocalDate.of(2026, 10, 19), ZoneId.of("Asia/Baghdad"))
-        assertEquals(2, list.size)
+        assertEquals(3, list.size)
+        assertEquals("Napoli", list.first { it.home == "Inter" }.away)
         assertEquals("Arsenal", list[0].home)
         assertEquals("Premier League", list[0].competition)
         assertEquals(listOf("beIN Sports Arabia 5 HD", "51 Kuwait"), list[0].broadcasters)

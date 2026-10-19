@@ -104,9 +104,7 @@ class LiveSoccerTv(private val http: OkHttpClient) {
                 continue
             }
             if (matchLink == null) continue
-            val teams = clean(matchLink.text()).split(Regex("""\s+(?:vs\.?|v)\s+""", RegexOption.IGNORE_CASE))
-            if (teams.size != 2 || teams.any { it.isBlank() }) continue
-            val (home, away) = teams.map { it.trim() }
+            val (home, away) = teams(matchLink) ?: continue
 
             val channels = LinkedHashSet<String>()
             for (a in tr.select("a[href*=/channels/]")) {
@@ -129,6 +127,26 @@ class LiveSoccerTv(private val http: OkHttpClient) {
             )
         }
         return out.sortedBy { it.kickoff ?: Long.MAX_VALUE }
+    }
+
+    /**
+     * "Arsenal vs Chelsea" before kickoff; once live or finished the link reads "Arsenal 1 - 0 Chelsea",
+     * so the score form is accepted too, with the link title and URL slug as fallbacks.
+     */
+    private fun teams(a: Element): Pair<String, String>? {
+        val vs = Regex("""\s+(?:vs\.?|v)\s+""", RegexOption.IGNORE_CASE)
+        val score = Regex("""^(.+?)\s+\d+\s*[-–:]\s*\d+\s+(.+)$""")
+        for (text in listOf(clean(a.text()), clean(a.attr("title")))) {
+            if (text.isEmpty()) continue
+            val parts = text.split(vs)
+            if (parts.size == 2 && parts.none { it.isBlank() }) return parts[0].trim() to parts[1].trim()
+            score.find(text)?.let { m -> return m.groupValues[1].trim() to m.groupValues[2].trim() }
+        }
+        // /match/arsenal-vs-chelsea/… → "Arsenal", "Chelsea"
+        val slug = a.attr("href").substringAfter("/match/", "").split('/').firstOrNull { "-vs-" in it } ?: return null
+        val (h, w) = slug.split("-vs-").takeIf { it.size == 2 } ?: return null
+        fun title(s: String) = s.split('-').joinToString(" ") { it.replaceFirstChar(Char::uppercase) }
+        return title(h) to title(w)
     }
 
     /** Exact unix time from a data attribute when present, else "HH:MM" in the TV's own timezone. */

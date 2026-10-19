@@ -183,6 +183,7 @@ class LiveViewModel(
     /** Search survives a trip to the player and back. */
     val searchQuery = MutableStateFlow("")
     var lastSearchStreamId: Long? = null
+    var lastSearchVodId: Long? = null
 
     /** Where the category list was scrolled, so it comes back in the same place. */
     var categoryScrollIndex: Int = 0

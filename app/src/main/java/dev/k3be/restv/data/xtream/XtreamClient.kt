@@ -63,6 +63,25 @@ class XtreamClient(private val http: OkHttpClient, private val json: Json) {
             .build().toString()
     }
 
+    /** Movie or episode file: [kind] is "movie" or "series". */
+    fun vodUrl(login: LoginEntity, kind: String, id: Long, ext: String): String {
+        val base = normalizeHost(login.host).toHttpUrlOrNull()
+            ?: throw XtreamException("That server address doesn't look right")
+        return base.newBuilder()
+            .addPathSegment(kind)
+            .addPathSegment(login.username)
+            .addPathSegment(login.password)
+            .addPathSegment("$id.${ext.ifBlank { "mp4" }}")
+            .build().toString()
+    }
+
+    /** Any action that answers with one JSON object (get_vod_info, get_series_info). */
+    suspend fun getObject(login: LoginEntity, action: String, extra: Map<String, String>): JsonObject = withContext(Dispatchers.IO) {
+        val body = getString(apiUrl(login, action, extra))
+        runCatching { json.parseToJsonElement(body).jsonObject }.getOrNull()
+            ?: throw XtreamException("The server sent no details for this title")
+    }
+
     suspend fun auth(login: LoginEntity): AuthInfo = withContext(Dispatchers.IO) {
         val body = getString(apiUrl(login, null))
         val root = runCatching { json.parseToJsonElement(body).jsonObject }.getOrNull()

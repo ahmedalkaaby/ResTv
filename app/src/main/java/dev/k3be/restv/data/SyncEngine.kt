@@ -5,6 +5,9 @@ import dev.k3be.restv.data.db.AppDatabase
 import dev.k3be.restv.data.db.ChannelEntity
 import dev.k3be.restv.data.db.LiveCategoryEntity
 import dev.k3be.restv.data.db.LoginEntity
+import dev.k3be.restv.data.db.MovieEntity
+import dev.k3be.restv.data.db.SeriesEntity
+import dev.k3be.restv.data.db.VodCategoryEntity
 import dev.k3be.restv.data.xtream.XtreamClient
 import dev.k3be.restv.data.xtream.bool
 import dev.k3be.restv.data.xtream.int
@@ -95,5 +98,73 @@ class SyncEngine(
         )
         catFile.delete()
         chFile.delete()
+    }
+
+    /** Movies and series. Big catalogues are streamed from disk into the database in chunks. */
+    suspend fun syncVod(login: LoginEntity, onProgress: (String) -> Unit) = withContext(Dispatchers.IO) {
+        val dir = File(cacheDir, "sync").apply { mkdirs() }
+        val fmt = NumberFormat.getIntegerInstance()
+        for (kind in listOf("movie", "series")) {
+            val label = if (kind == "movie") "movies" else "series"
+            val catFile = File(dir, "${kind}_categories.json")
+            val listFile = File(dir, "${kind}_list.json")
+            onProgress("Downloading $label")
+            xtream.download(login, if (kind == "movie") "get_vod_categories" else "get_series_categories", catFile)
+            xtream.download(login, if (kind == "movie") "get_vod_streams" else "get_series", listFile)
+
+            val cats = ArrayList<VodCategoryEntity>()
+            xtream.readArray(catFile) { o ->
+                val id = o.str("category_id") ?: return@readArray
+                val raw = o.str("category_name") ?: id
+                cats += VodCategoryEntity(login.id, kind, id, raw, Naming.split(raw).name, cats.size, VodNaming.platformOf(raw))
+            }
+
+            onProgress("Saving $label")
+            var saved = 0
+            db.runInTransaction {
+                db.vod().clearCategories(login.id, kind)
+                db.vod().insertCategories(cats)
+                if (kind == "movie") {
+                    db.vod().clearMovies(login.id)
+                    val chunk = ArrayList<MovieEntity>(2000)
+                    xtream.readArray(listFile) { o ->
+                        val id = o.long("stream_id") ?: return@readArray
+                        val raw = o.str("name") ?: return@readArray
+                        val p = VodNaming.parse(raw, o.str("year") ?: o.str("releasedate") ?: o.str("release_date"))
+                        chunk += MovieEntity(
+                            loginId = login.id, streamId = id, rawName = raw, name = p.title, year = p.year,
+                            categoryId = o.str("category_id") ?: "", poster = o.str("stream_icon"),
+                            rating = o.str("rating")?.toFloatOrNull()?.takeIf { it > 0 },
+                            added = (o.long("added") ?: 0L) * 1000, ext = o.str("container_extension") ?: "mp4",
+                            titleKey = VodNaming.key(p.title), quality = Naming.quality(raw),
+                        )
+                        if (chunk.size == 2000) { db.vod().insertMovies(chunk); saved += chunk.size; chunk.clear(); onProgress("Saving movies · ${fmt.format(saved)}") }
+                    }
+                    if (chunk.isNotEmpty()) { db.vod().insertMovies(chunk); saved += chunk.size }
+                } else {
+                    db.vod().clearSeries(login.id)
+                    val chunk = ArrayList<SeriesEntity>(2000)
+                    xtream.readArray(listFile) { o ->
+                        val id = o.long("series_id") ?: return@readArray
+                        val raw = o.str("name") ?: return@readArray
+                        val p = VodNaming.parse(raw, o.str("releaseDate") ?: o.str("release_date") ?: o.str("year"))
+                        val backdrop = (o["backdrop_path"] as? kotlinx.serialization.json.JsonArray)
+                            ?.firstNotNullOfOrNull { (it as? kotlinx.serialization.json.JsonPrimitive)?.content?.takeIf { u -> u.startsWith("http") } }
+                        chunk += SeriesEntity(
+                            loginId = login.id, seriesId = id, rawName = raw, name = p.title, year = p.year,
+                            categoryId = o.str("category_id") ?: "", poster = o.str("cover"), backdrop = backdrop,
+                            plot = o.str("plot"), genre = o.str("genre"),
+                            rating = o.str("rating")?.toFloatOrNull()?.takeIf { it > 0 },
+                            updated = (o.long("last_modified") ?: 0L) * 1000, titleKey = VodNaming.key(p.title),
+                        )
+                        if (chunk.size == 2000) { db.vod().insertSeries(chunk); saved += chunk.size; chunk.clear(); onProgress("Saving series · ${fmt.format(saved)}") }
+                    }
+                    if (chunk.isNotEmpty()) { db.vod().insertSeries(chunk); saved += chunk.size }
+                }
+            }
+            onProgress("Saved ${fmt.format(saved)} $label")
+            catFile.delete()
+            listFile.delete()
+        }
     }
 }

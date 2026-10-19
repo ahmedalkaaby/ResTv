@@ -1,0 +1,176 @@
+package dev.k3be.restv.ui.vod
+
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import dev.k3be.restv.Session
+import dev.k3be.restv.SyncState
+import dev.k3be.restv.ui.components.Toast
+import dev.k3be.restv.ui.components.TvButton
+import dev.k3be.restv.ui.components.Txt
+import dev.k3be.restv.ui.live.SidebarItem
+import dev.k3be.restv.ui.live.TopBar
+import dev.k3be.restv.ui.theme.C
+import dev.k3be.restv.ui.theme.S
+import dev.k3be.restv.ui.theme.T
+import kotlinx.coroutines.delay
+
+/** Movies or Series: hero for the focused title, then horizontal rails. */
+@Composable
+fun VodHomeScreen(
+    session: Session,
+    kind: String,
+    sync: SyncState,
+    onDownload: () -> Unit,
+    onOpen: (VodCard) -> Unit,
+    onSeeAll: (Rail) -> Unit,
+    onNavigate: (SidebarItem) -> Unit,
+) {
+    val vm = rememberVodViewModel(session, kind)
+    val count by vm.count.collectAsStateWithLifecycle()
+    val rails by vm.rails.collectAsStateWithLifecycle()
+    val hero by vm.hero.collectAsStateWithLifecycle()
+    val wishIds by vm.wishIds.collectAsStateWithLifecycle()
+    val tab = if (kind == "movie") SidebarItem.Movies else SidebarItem.Series
+    val label = if (kind == "movie") "movies" else "series"
+    var toast by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(toast) { if (toast != null) { delay(2_500); toast = null } }
+
+    // Reload once a download finishes.
+    var wasRunning by remember { mutableStateOf(false) }
+    LaunchedEffect(sync) {
+        if (sync is SyncState.Running) wasRunning = true
+        else if (wasRunning) { wasRunning = false; vm.reload() }
+    }
+    // First visit with nothing downloaded: start the download.
+    LaunchedEffect(count) { if (count == 0 && sync !is SyncState.Running) onDownload() }
+
+    // Coming back from a title restores focus on its poster; otherwise the first poster gets focus.
+    val restore = remember { vm.lastFocus }
+    var restored by remember { mutableStateOf(false) }
+    val listState = rememberLazyListState()
+    val firstFocus = remember { FocusRequester() }
+
+    Box(Modifier.fillMaxSize()) {
+        Backdrop(hero?.backdrop ?: hero?.card?.poster?.takeIf { hero?.backdrop == null && kind == "series" })
+        Column(Modifier.fillMaxSize()) {
+            TopBar(tab, onNavigate)
+            when {
+                count == null -> {}
+                count == 0 -> Column(Modifier.padding(start = S.safeX, top = S.s8), verticalArrangement = Arrangement.spacedBy(S.s3)) {
+                    Txt(if (kind == "movie") "Movies" else "Series", T.display)
+                    Txt(
+                        when (sync) {
+                            is SyncState.Running -> sync.message
+                            is SyncState.Failed -> sync.message
+                            else -> "Your $label haven't been downloaded yet."
+                        },
+                        T.bodyLg, color = if (sync is SyncState.Failed) C.danger else C.inkMuted, maxLines = 3,
+                    )
+                    if (sync !is SyncState.Running) TvButton("Download $label", primary = true, modifier = Modifier.focusRequester(firstFocus), onClick = onDownload)
+                    LaunchedEffect(sync) { runCatching { firstFocus.requestFocus() } }
+                }
+                else -> {
+                    HeroText(hero, Modifier.padding(top = S.s4).height(150.dp))
+                    LazyColumn(
+                        state = listState,
+                        modifier = Modifier.fillMaxWidth().weight(1f),
+                        contentPadding = PaddingValues(top = S.s2, bottom = S.s8),
+                    ) {
+                        items(rails.size, key = { rails[it].id }) { i ->
+                            val rail = rails[i]
+                            LaunchedEffect(rail.id) { vm.loadRail(rail.id) }
+                            val restoreId = restore?.takeIf { it.startsWith("${rail.id}|") }?.substringAfter('|')?.toLongOrNull()
+                            val firstRail = restore == null && i == 0
+                            RailRow(
+                                rail = rail,
+                                wishIds = wishIds,
+                                restoreCardId = if (restored) null else restoreId ?: if (firstRail) rail.cards?.firstOrNull()?.id else null,
+                                onFocus = { c -> restored = true; vm.focus(c); vm.lastFocus = "${rail.id}|${c.id}" },
+                                onClick = onOpen,
+                                onLongClick = { c ->
+                                    toast = if (c.id in wishIds) "Removed from My List" else "Added to My List"
+                                    vm.toggleWish(c)
+                                },
+                                onSeeAll = if ((rail.cards?.size ?: 0) >= 8 || rail.id.startsWith("cat:")) ({ onSeeAll(rail) }) else null,
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        toast?.let { Toast(it, Modifier.align(Alignment.BottomCenter).padding(bottom = S.safeY)) }
+    }
+}
+
+/** Every title behind a rail, as a grid. */
+@Composable
+fun VodGridScreen(
+    session: Session,
+    kind: String,
+    railId: String,
+    title: String,
+    onOpen: (VodCard) -> Unit,
+) {
+    val vm = rememberVodViewModel(session, kind)
+    val wishIds by vm.wishIds.collectAsStateWithLifecycle()
+    var cards by remember { mutableStateOf<List<VodCard>?>(null) }
+    val startId = remember { vm.gridFocus[railId] }
+    var focusedAny by remember { mutableStateOf(false) }
+    LaunchedEffect(railId) { cards = vm.all(railId) }
+    val state = rememberLazyGridState()
+    LaunchedEffect(cards) {
+        val l = cards ?: return@LaunchedEffect
+        val i = l.indexOfFirst { it.id == startId }
+        if (i > 0) state.scrollToItem(i)
+    }
+    Column(Modifier.fillMaxSize().padding(top = S.safeY)) {
+        Txt(title, T.titleLg, modifier = Modifier.padding(start = S.safeX))
+        val list = cards
+        Txt(if (list == null) "Loading…" else "${list.size} titles", T.caption, color = C.inkFaint, modifier = Modifier.padding(start = S.safeX, bottom = S.s3))
+        if (list != null) {
+            LazyVerticalGrid(
+                columns = GridCells.Adaptive(POSTER_W + 14.dp),
+                state = state,
+                contentPadding = PaddingValues(start = S.safeX, end = S.safeX, top = 8.dp, bottom = S.s8),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+                horizontalArrangement = Arrangement.spacedBy(14.dp),
+                modifier = Modifier.fillMaxSize(),
+            ) {
+                items(list.size, key = { list[it].id }) { i ->
+                    val c = list[i]
+                    PosterCard(
+                        card = c,
+                        inList = c.id in wishIds,
+                        requestFocus = !focusedAny && (startId ?: list.first().id) == c.id,
+                        onFocus = { focusedAny = true; vm.gridFocus[railId] = c.id },
+                        onClick = { onOpen(c) },
+                        onLongClick = { vm.toggleWish(c) },
+                    )
+                }
+            }
+        }
+    }
+}

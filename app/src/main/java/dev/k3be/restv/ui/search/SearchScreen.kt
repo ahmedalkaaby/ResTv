@@ -29,6 +29,10 @@ import dev.k3be.restv.ui.components.Txt
 import dev.k3be.restv.ui.live.ChannelRow
 import dev.k3be.restv.ui.live.ChannelRowContent
 import dev.k3be.restv.ui.live.NavScaffold
+import dev.k3be.restv.ui.vod.Rail
+import dev.k3be.restv.ui.vod.RailRow
+import dev.k3be.restv.ui.vod.VodCard
+import androidx.compose.foundation.layout.fillMaxWidth
 import dev.k3be.restv.ui.live.SidebarItem
 import dev.k3be.restv.ui.live.groupVariants
 import dev.k3be.restv.ui.live.rememberLiveViewModel
@@ -38,11 +42,12 @@ import dev.k3be.restv.ui.theme.S
 import dev.k3be.restv.ui.theme.T
 import kotlinx.coroutines.delay
 
-/** Live channel search across every category. Movies, series and programmes join when they exist. */
+/** Search across channels, movies and series. */
 @Composable
 fun SearchScreen(
     session: Session,
     onPlay: (List<ChannelRow>, Int) -> Unit,
+    onOpenVod: (VodCard) -> Unit,
     onNavigate: (SidebarItem) -> Unit,
 ) {
     val app = LocalContext.current.applicationContext as RestvApp
@@ -50,6 +55,9 @@ fun SearchScreen(
     val favs by live.favoriteIds.collectAsStateWithLifecycle()
     val query by live.searchQuery.collectAsStateWithLifecycle()
     var results by remember { mutableStateOf<List<ChannelRow>>(emptyList()) }
+    var movies by remember { mutableStateOf<List<VodCard>>(emptyList()) }
+    var shows by remember { mutableStateOf<List<VodCard>>(emptyList()) }
+    val restoreVod = remember { live.lastSearchVodId }
     var categoryNames by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
     val field = remember { FocusRequester() }
     val listState = rememberLazyListState()
@@ -60,15 +68,20 @@ fun SearchScreen(
 
     val restoreId = remember { live.lastSearchStreamId }
     LaunchedEffect(Unit) {
-        if (restoreId == null || query.trim().length < 2) runCatching { field.requestFocus() }
+        if ((restoreId == null && restoreVod == null) || query.trim().length < 2) runCatching { field.requestFocus() }
         categoryNames = app.db.live().categories(session.login.id).associate { c ->
             c.categoryId to listOf(c.name, c.groupLabel).filter { it.isNotBlank() && it != "Other" }.joinToString(" · ")
         }
     }
     LaunchedEffect(query) {
         val q = query.trim()
-        if (q.length < 2) { results = emptyList(); return@LaunchedEffect }
+        if (q.length < 2) { results = emptyList(); movies = emptyList(); shows = emptyList(); return@LaunchedEffect }
         delay(250) // wait for typing to pause
+        movies = app.db.vod().searchMovies(session.login.id, q)
+            .groupBy { it.titleKey + "|" + (it.year ?: "") }.values.map { g -> g.maxBy { it.quality } }
+            .map { VodCard("movie", it.streamId, it.name, it.year, it.poster, it.rating, it.quality) }
+        shows = app.db.vod().searchSeries(session.login.id, q)
+            .map { VodCard("series", it.seriesId, it.name, it.year, it.poster, it.rating) }
         val prefix = q.lowercase()
         // 4K first across every category, then FHD, HD; names starting with the query first within a tier.
         results = groupVariants(app.db.live().search(session.login.id, q).filterNot { dev.k3be.restv.data.Naming.isSeparator(it.rawName) }).sortedWith(
@@ -85,17 +98,39 @@ fun SearchScreen(
         ) {
             Txt("Search", T.titleLg)
             Column(Modifier.width(560.dp)) {
-                TvTextField("Channel name", query, { live.searchQuery.value = it }, Modifier.focusRequester(field), keyboardType = KeyboardType.Text)
+                TvTextField("Channels, movies or series", query, { live.searchQuery.value = it }, Modifier.focusRequester(field), keyboardType = KeyboardType.Text)
             }
             Txt(
                 when {
                     query.trim().length < 2 -> "Type at least 2 letters. The TV keyboard's mic works for voice search."
-                    results.isEmpty() -> "No channels match \"${query.trim()}\"."
-                    else -> "${results.size} channels · best quality first"
+                    results.isEmpty() && movies.isEmpty() && shows.isEmpty() -> "Nothing matches \"${query.trim()}\"."
+                    else -> listOfNotNull(
+                        movies.size.takeIf { it > 0 }?.let { "$it movies" },
+                        shows.size.takeIf { it > 0 }?.let { "$it series" },
+                        results.size.takeIf { it > 0 }?.let { "$it channels, best quality first" },
+                    ).joinToString(" · ")
                 },
                 T.caption, color = C.inkFaint,
             )
-            LazyColumn(Modifier.width(720.dp), state = listState, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            LazyColumn(Modifier.fillMaxWidth(), state = listState, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                for ((label, cards) in listOf("Movies" to movies, "Series" to shows)) {
+                    if (cards.isEmpty()) continue
+                    item(key = "rail-$label") {
+                        RailRow(
+                            rail = Rail("search-$label", label, cards),
+                            wishIds = emptySet(),
+                            restoreCardId = restoreVod?.takeIf { id -> cards.any { it.id == id } },
+                            onFocus = {},
+                            onClick = { c -> live.lastSearchVodId = c.id; live.lastSearchStreamId = null; onOpenVod(c) },
+                            onLongClick = {},
+                            onSeeAll = null,
+                            start = 0.dp,
+                        )
+                    }
+                }
+                if (results.isNotEmpty() && (movies.isNotEmpty() || shows.isNotEmpty())) {
+                    item(key = "ch-label") { Txt("Channels", T.title, modifier = Modifier.padding(bottom = 4.dp)) }
+                }
                 items(results.size, key = { results[it].streamId }) { index ->
                     val row = results[index]
                     val fr = remember { FocusRequester() }
@@ -103,9 +138,9 @@ fun SearchScreen(
                         LaunchedEffect(Unit) { runCatching { fr.requestFocus() }; live.lastSearchStreamId = null }
                     }
                     FocusRow(
-                        modifier = Modifier.focusRequester(fr),
+                        modifier = Modifier.width(720.dp).focusRequester(fr),
                         height = 60.dp,
-                        onClick = { live.lastSearchStreamId = row.streamId; onPlay(results, index) },
+                        onClick = { live.lastSearchStreamId = row.streamId; live.lastSearchVodId = null; onPlay(results, index) },
                         onLongClick = { live.toggleFavorite(row.main) },
                     ) { _ ->
                         ChannelRowContent(row, row.streamId in favs, categoryNames[row.main.categoryId])

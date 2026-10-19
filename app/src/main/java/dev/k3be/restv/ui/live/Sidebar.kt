@@ -40,6 +40,8 @@ import dev.k3be.restv.ui.theme.T
 enum class SidebarItem(val label: String, val icon: ImageVector) {
     Search("Search", Icons.search),
     Live("Live TV", Icons.live),
+    Movies("Movies", Icons.film),
+    Series("Series", Icons.series),
     Matches("Matches", Icons.ball),
     Settings("Settings", Icons.settings),
 }
@@ -61,7 +63,7 @@ fun TopBar(active: SidebarItem, onSelect: (SidebarItem) -> Unit) {
         horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         Txt("Restv", T.title, color = C.accent, modifier = Modifier.padding(end = S.s4))
-        listOf(SidebarItem.Live, SidebarItem.Matches, SidebarItem.Search).forEach { item ->
+        listOf(SidebarItem.Live, SidebarItem.Movies, SidebarItem.Series, SidebarItem.Matches, SidebarItem.Search).forEach { item ->
             NavItem(item, active == item) { if (item != active) onSelect(item) }
         }
         Spacer(Modifier.weight(1f))
