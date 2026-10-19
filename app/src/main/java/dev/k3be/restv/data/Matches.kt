@@ -158,8 +158,8 @@ class MatchesRepo(
         // (country key, broadcaster name), only from the countries the user watches.
         val pairs = LinkedHashSet<Pair<String, String>>()
         detail?.coverage?.forEach { (country, name) -> countryKey(country)?.let { pairs += it to name } }
-        // The schedule page lists the viewer's own region (Iraq); use it when the match page has no Iraq row.
-        if (pairs.none { it.first == "iraq" }) match.broadcasters.forEach { pairs += "iraq" to it }
+        // The schedule page lists the viewer's own region (Iraq) — Shahid, STARZPLAY, Thmanyah… — add it too.
+        match.broadcasters.forEach { pairs += "iraq" to it }
 
         val idx = index(loginId)
         val found = LinkedHashMap<Long, ChannelEntity>()
@@ -291,23 +291,57 @@ class MatchesRepo(
         return "https://cdn.livesoccertv.com/tt/images/teams/$country/logos/${if (home) slugs[0] else slugs[1]}.png"
     }
 
-    private fun lookup(idx: Map<String, List<ChannelEntity>>, broadcaster: String): List<ChannelEntity> {
+    /**
+     * Finds the channels for one broadcaster name, strictest first:
+     * 1. same core name ("beIN Sports 3" ↔ "AR: beIN SP⚽RTS 3 HD");
+     * 2. channels that start with the name ("STARZPLAY" ↔ "STARZPLAY Sports 1", "Shahid VIP" ↔ "Shahid Sport 2");
+     * 3. the same with spelling folded ("Thmanyah" ↔ "Thamanya 1", "Al Manassa" ↔ "ALMANASA", "Starz Play" ↔ "STARZPLAY").
+     * Broad matches keep only sports channels when there are any.
+     */
+    private fun lookup(idx: Index, broadcaster: String): List<ChannelEntity> {
         val target = core(broadcaster)
-        if (target.isEmpty() || streamingOnly.any { target == it || target.startsWith("$it ") }) return emptyList()
-        return idx[target].orEmpty()
+        if (target.isEmpty() || target in never) return emptyList()
+        idx.byCore[target]?.let { return it }
+        if (target.length < 3) return emptyList()
+        val prefix = idx.byCore.filterKeys { it.startsWith("$target ") }.values.flatten()
+        if (prefix.isNotEmpty()) return sportsFirst(prefix)
+        val sk = skeleton(target)
+        if (sk.length < 3 || target.replace(" ", "").length < 5) return emptyList()
+        idx.bySkeleton[sk]?.let { return sportsFirst(it) }
+        val loose = idx.bySkeleton.filterKeys { it.startsWith(sk) && it.length > sk.length && it[sk.length].isDigit() || it.startsWith(sk + "sp") }.values.flatten()
+        return sportsFirst(loose)
     }
+
+    private fun sportsFirst(list: List<ChannelEntity>): List<ChannelEntity> {
+        if (list.size <= 6) return list
+        val sports = list.filter { "sport" in it.name.lowercase() }
+        return sports.ifEmpty { list }
+    }
+
+    /** Spelling-insensitive form: no spaces, "al/el" prefixes, vowels after the first letter, doubles or final h. */
+    fun skeleton(core: String): String =
+        core.split(' ').filter { it.isNotEmpty() && it != "al" && it != "el" }.joinToString("") { w ->
+            val word = if ((w.startsWith("al") || w.startsWith("el")) && w.length > 5 && w[2].isLetter()) w.drop(2) else w
+            val body = word.first() + word.drop(1).filterNot { it in "aeiouy" }
+            body.replace(Regex("""(.)\1+"""), "$1").let { if (it.length > 3 && it.endsWith("h")) it.dropLast(1) else it }
+        }
+
+    private class Index(val byCore: Map<String, List<ChannelEntity>>, val bySkeleton: Map<String, List<ChannelEntity>>)
 
     // Channel list reduced to core names, rebuilt when the list changes (sync).
     private val indexLock = Mutex()
     private var indexKey: Pair<Long, Int>? = null
-    private var indexMap: Map<String, List<ChannelEntity>> = emptyMap()
+    private var indexMap = Index(emptyMap(), emptyMap())
 
-    private suspend fun index(loginId: Long): Map<String, List<ChannelEntity>> = indexLock.withLock {
+    private suspend fun index(loginId: Long): Index = indexLock.withLock {
         val key = loginId to db.live().countChannels(loginId)
         if (key != indexKey) {
-            indexMap = db.live().allChannels(loginId)
+            val byCore = db.live().allChannels(loginId)
                 .filterNot { Naming.isSeparator(it.rawName) }
                 .groupBy { core(Naming.cleanChannelName(it.rawName)) }
+            val bySkeleton = HashMap<String, MutableList<ChannelEntity>>()
+            byCore.forEach { (k, v) -> bySkeleton.getOrPut(skeleton(k)) { ArrayList() }.addAll(v) }
+            indexMap = Index(byCore, bySkeleton)
             indexKey = key
         }
         indexMap
@@ -360,11 +394,11 @@ class MatchesRepo(
 
     private val noise = setOf(
         "mena", "arabia", "arabic", "ar", "uk", "hd", "fhd", "uhd", "4k", "sd", "hevc", "tv", "channel", "live",
-        "max", "premium", "global", "international", "middle", "east", "north", "africa",
+        "global", "international", "middle", "east", "north", "africa",
         "raw", "backup", "vip", "fps", "50fps", "60fps", "h265", "1080p", "720p", "2160p", "1080", "720", "2160",
     )
 
-    /** Streaming services that will never be an IPTV channel in the list. */
-    private val streamingOnly = listOf("tod", "dazn", "bein sports connect", "shahid", "fubo", "peacock", "paramount", "espn plus")
+    /** Apps, not channels: nothing in an IPTV list carries them. */
+    private val never = setOf("bein sports connect", "bein connect")
 
 }

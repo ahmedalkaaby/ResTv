@@ -57,6 +57,16 @@ android {
         compose = true
         buildConfig = true
     }
+    testOptions {
+        unitTests.isIncludeAndroidResources = true
+        unitTests.isReturnDefaultValues = true
+        unitTests.all { test ->
+            // Robolectric reads its Android jar from Gradle's download instead of fetching it itself.
+            test.systemProperty("robolectric.offline", "true")
+            test.systemProperty("robolectric.dependency.dir", layout.buildDirectory.dir("robolectric").get().asFile.absolutePath)
+            test.dependsOn("copyRobolectricJars")
+        }
+    }
     lint {
         abortOnError = false
         checkReleaseBuilds = false
@@ -100,4 +110,19 @@ dependencies {
     implementation("io.coil-kt:coil-compose:2.7.0")
     implementation("org.jsoup:jsoup:1.18.3")
     testImplementation("junit:junit:4.13.2")
+    testImplementation(composeBom)
+    testImplementation("androidx.compose.ui:ui-test-junit4")
+    debugImplementation("androidx.compose.ui:ui-test-manifest")
+    testImplementation("org.robolectric:robolectric:4.13")
+    testImplementation("androidx.test:core:1.6.1")
+    testImplementation("androidx.room:room-testing:2.6.1")
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0")
+    testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
+}
+
+val robolectricJars: Configuration by configurations.creating
+dependencies { robolectricJars("org.robolectric:android-all-instrumented:14-robolectric-10818077-i6") }
+tasks.register<Copy>("copyRobolectricJars") {
+    from(robolectricJars)
+    into(layout.buildDirectory.dir("robolectric"))
 }

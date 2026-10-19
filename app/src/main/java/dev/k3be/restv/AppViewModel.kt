@@ -49,7 +49,7 @@ data class PlayItem(
 
 sealed interface SyncState {
     data object Idle : SyncState
-    data class Running(val message: String) : SyncState
+    data class Running(val message: String, val fraction: Float? = null) : SyncState
     data class Failed(val message: String) : SyncState
 }
 
@@ -115,12 +115,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         return if (isTab(current) && current !is Route.Live) { _route.value = Route.Live; true } else false
     }
 
-    fun syncVodNow() {
+    fun syncVodNow(first: String = "movie") {
         val login = _session.value?.login ?: return
         if (_sync.value is SyncState.Running) return
         viewModelScope.launch {
             try {
-                app.sync.syncVod(login) { msg -> _sync.value = SyncState.Running(msg) }
+                app.sync.syncVod(login, first) { msg, f -> _sync.value = SyncState.Running(msg, f) }
                 _sync.value = SyncState.Idle
             } catch (e: Exception) {
                 _sync.value = SyncState.Failed(e.message ?: "Couldn't download movies and series")
@@ -159,7 +159,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         try {
             _sync.value = SyncState.Running("Starting")
             app.sync.syncLive(login) { msg -> _sync.value = SyncState.Running(msg) }
-            app.sync.syncVod(login) { msg -> _sync.value = SyncState.Running(msg) }
+            app.sync.syncVod(login) { msg, f -> _sync.value = SyncState.Running(msg, f) }
             _sync.value = SyncState.Idle
         } catch (e: Exception) {
             _sync.value = SyncState.Failed(e.message ?: "Sync failed")

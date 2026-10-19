@@ -5,6 +5,7 @@ import androidx.room.AutoMigration
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
+import androidx.room.RoomDatabase.JournalMode
 
 @Database(
     entities = [
@@ -40,6 +41,8 @@ abstract class AppDatabase : RoomDatabase() {
             Room.databaseBuilder(context, AppDatabase::class.java, "restv.db")
                 // Catalogue data is re-downloadable; personal data migrations get written once we ship v1.
                 .fallbackToDestructiveMigration()
+                // Write-ahead logging even on low-RAM TVs: screens keep reading while a sync writes.
+                .setJournalMode(JournalMode.WRITE_AHEAD_LOGGING)
                 .build()
     }
 }

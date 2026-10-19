@@ -101,20 +101,47 @@ class XtreamClient(private val http: OkHttpClient, private val json: Json) {
     }
 
     /** Downloads an action's JSON array to [target]. Big lists are written to disk first, then parsed. */
-    suspend fun download(login: LoginEntity, action: String, target: File) = withContext(Dispatchers.IO) {
+    /** [onProgress] gets 0..1 when the server says how big the answer is, otherwise null. */
+    suspend fun download(login: LoginEntity, action: String, target: File, onProgress: (Float?) -> Unit = {}) = withContext(Dispatchers.IO) {
         val req = Request.Builder().url(apiUrl(login, action)).build()
         http.newCall(req).execute().use { resp ->
             if (!resp.isSuccessful) throw XtreamException("Server error ${resp.code} on $action")
             val body = resp.body ?: throw XtreamException("Empty answer on $action")
-            target.outputStream().use { out -> body.byteStream().copyTo(out) }
+            val total = body.contentLength()
+            target.outputStream().buffered().use { out ->
+                val input = body.byteStream()
+                val buf = ByteArray(64 * 1024)
+                var done = 0L
+                var lastReport = 0L
+                while (true) {
+                    val n = input.read(buf)
+                    if (n < 0) break
+                    out.write(buf, 0, n)
+                    done += n
+                    if (done - lastReport > 512 * 1024) {
+                        lastReport = done
+                        onProgress(if (total > 0) (done.toFloat() / total).coerceIn(0f, 1f) else null)
+                    }
+                }
+            }
         }
     }
 
+    /** Streams a JSON array from disk; [onProgress] gets the share of the file read so far. */
     @OptIn(ExperimentalSerializationApi::class)
-    fun readArray(file: File, onItem: (JsonObject) -> Unit) {
-        file.inputStream().buffered().use { input ->
-            json.decodeToSequence(input, JsonObject.serializer(), DecodeSequenceMode.ARRAY_WRAPPED)
-                .forEach(onItem)
+    fun readArray(file: File, onProgress: ((Float) -> Unit)? = null, onItem: (JsonObject) -> Unit) {
+        val size = file.length().coerceAtLeast(1)
+        var read = 0L
+        val counting = object : java.io.FilterInputStream(file.inputStream()) {
+            override fun read(): Int = super.read().also { if (it >= 0) read++ }
+            override fun read(b: ByteArray, off: Int, len: Int): Int = super.read(b, off, len).also { if (it > 0) read += it }
+        }
+        counting.buffered().use { input ->
+            var count = 0
+            json.decodeToSequence(input, JsonObject.serializer(), DecodeSequenceMode.ARRAY_WRAPPED).forEach { o ->
+                onItem(o)
+                if (onProgress != null && ++count % 500 == 0) onProgress((read.toFloat() / size).coerceIn(0f, 1f))
+            }
         }
     }
 

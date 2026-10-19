@@ -18,6 +18,18 @@ interface VodDao {
     @Query("DELETE FROM series WHERE loginId = :loginId")
     fun clearSeries(loginId: Long)
 
+    @Query("SELECT streamId FROM movie WHERE loginId = :loginId")
+    fun movieIds(loginId: Long): List<Long>
+
+    @Query("SELECT seriesId FROM series WHERE loginId = :loginId")
+    fun seriesIds(loginId: Long): List<Long>
+
+    @Query("DELETE FROM movie WHERE loginId = :loginId AND streamId IN (:ids)")
+    fun deleteMovies(loginId: Long, ids: List<Long>)
+
+    @Query("DELETE FROM series WHERE loginId = :loginId AND seriesId IN (:ids)")
+    fun deleteSeries(loginId: Long, ids: List<Long>)
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     fun insertCategories(list: List<VodCategoryEntity>)
 

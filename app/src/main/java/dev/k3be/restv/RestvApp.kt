@@ -18,6 +18,22 @@ import java.util.concurrent.TimeUnit
 /** Holds the app's single instances. Small enough that a DI framework isn't worth it yet. */
 class RestvApp : Application() {
 
+    /** Keeps the last crash's stack trace so the next launch can show it. */
+    val crashFile: java.io.File get() = java.io.File(filesDir, "last_crash.txt")
+
+    override fun onCreate() {
+        super.onCreate()
+        val previous = Thread.getDefaultUncaughtExceptionHandler()
+        Thread.setDefaultUncaughtExceptionHandler { thread, e ->
+            runCatching {
+                val sw = java.io.StringWriter()
+                e.printStackTrace(java.io.PrintWriter(sw))
+                crashFile.writeText("Restv ${packageManager.getPackageInfo(packageName, 0).versionName} · ${java.util.Date()}\n$sw")
+            }
+            previous?.uncaughtException(thread, e)
+        }
+    }
+
     val json: Json by lazy { Json { ignoreUnknownKeys = true; isLenient = true } }
 
     val http: OkHttpClient by lazy {

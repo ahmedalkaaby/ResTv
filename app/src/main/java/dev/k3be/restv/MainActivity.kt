@@ -18,6 +18,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -120,7 +121,7 @@ fun AppRoot(vm: AppViewModel = viewModel()) {
                         session = s,
                         kind = kind,
                         sync = sync,
-                        onDownload = vm::syncVodNow,
+                        onDownload = { vm.syncVodNow(kind) },
                         onOpen = { c -> vm.go(if (c.kind == "movie") Route.MovieDetail(c.id) else Route.SeriesDetail(c.id)) },
                         onSeeAll = { rail -> vm.go(Route.VodGrid(kind, rail.id, rail.title)) },
                         onNavigate = navigate,
@@ -145,8 +146,34 @@ fun AppRoot(vm: AppViewModel = viewModel()) {
                 PlayerScreen(session = s, rows = r.channels, startIndex = r.index, onExit = { vm.back() })
             }
         }
+        CrashReport()
         if (exitHint) {
             Toast("Press Back again to exit", Modifier.align(Alignment.BottomCenter).padding(bottom = S.safeY + S.s4))
         }
+    }
+}
+
+/** After a crash, shows what went wrong so it can be photographed and fixed. */
+@Composable
+private fun CrashReport() {
+    val app = LocalContext.current.applicationContext as RestvApp
+    var text by remember { mutableStateOf(runCatching { app.crashFile.takeIf { it.exists() }?.readText() }.getOrNull()) }
+    val t = text ?: return
+    val ok = remember { androidx.compose.ui.focus.FocusRequester() }
+    LaunchedEffect(Unit) { runCatching { ok.requestFocus() } }
+    fun dismiss() { app.crashFile.delete(); text = null }
+    BackHandler { dismiss() }
+    androidx.compose.foundation.layout.Column(
+        Modifier.fillMaxSize().background(C.bg000.copy(alpha = 0.97f)).padding(horizontal = S.safeX, vertical = S.safeY),
+        verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(S.s3),
+    ) {
+        dev.k3be.restv.ui.components.Txt("Restv closed unexpectedly last time", dev.k3be.restv.ui.theme.T.titleLg)
+        dev.k3be.restv.ui.components.Txt("Take a photo of this screen and send it over, then press OK.", dev.k3be.restv.ui.theme.T.body, color = C.inkMuted)
+        dev.k3be.restv.ui.components.TvButton("OK", primary = true, modifier = Modifier.focusRequester(ok)) { dismiss() }
+        dev.k3be.restv.ui.components.Txt(
+            t.lines().filter { it.isNotBlank() }.take(28).joinToString("\n"),
+            dev.k3be.restv.ui.theme.T.caption.copy(fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace),
+            color = C.inkMuted, maxLines = 28,
+        )
     }
 }

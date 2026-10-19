@@ -2,6 +2,7 @@ package dev.k3be.restv.ui.vod
 
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -156,9 +157,7 @@ fun RailRow(
     Column(Modifier.fillMaxWidth().padding(bottom = S.s3), verticalArrangement = Arrangement.spacedBy(S.s2)) {
         Txt(rail.title, T.title.copy(fontSize = T.label.fontSize.times(1.15f)), color = if (rail.accent) C.accent else C.ink, modifier = Modifier.padding(start = start))
         if (cards.isEmpty()) {
-            Box(Modifier.height(POSTER_H + 24.dp).padding(start = start), contentAlignment = Alignment.CenterStart) {
-                Txt("Loading…", T.caption, color = C.inkFaint)
-            }
+            SkeletonRow(start)
             return@Column
         }
         LazyRow(
@@ -207,5 +206,21 @@ fun HeroText(hero: Hero?, modifier: Modifier = Modifier) {
         Txt(hero.card.title, T.display, maxLines = 1)
         if (hero.meta.isNotBlank()) Txt(hero.meta, T.label, color = C.accent)
         hero.plot?.let { Txt(it, T.body, color = C.inkMuted, maxLines = 3) }
+    }
+}
+
+/** Placeholder posters that pulse while a rail loads. */
+@Composable
+private fun SkeletonRow(start: Dp) {
+    val t = androidx.compose.animation.core.rememberInfiniteTransition(label = "sk")
+    val a by t.animateFloat(
+        0.35f, 0.7f,
+        androidx.compose.animation.core.infiniteRepeatable(tween(800), androidx.compose.animation.core.RepeatMode.Reverse),
+        label = "a",
+    )
+    Row(Modifier.padding(start = start).height(POSTER_H + 30.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+        repeat(8) {
+            Box(Modifier.size(POSTER_W, POSTER_H).graphicsLayer { alpha = a }.clip(RoundedCornerShape(S.radiusMd)).background(C.bg200))
+        }
     }
 }

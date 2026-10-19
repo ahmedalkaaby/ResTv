@@ -1,5 +1,19 @@
 package dev.k3be.restv.ui.vod
 
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
+import dev.k3be.restv.ui.components.ProgressBar
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -79,19 +93,7 @@ fun VodHomeScreen(
             TopBar(tab, onNavigate)
             when {
                 count == null -> {}
-                count == 0 -> Column(Modifier.padding(start = S.safeX, top = S.s8), verticalArrangement = Arrangement.spacedBy(S.s3)) {
-                    Txt(if (kind == "movie") "Movies" else "Series", T.display)
-                    Txt(
-                        when (sync) {
-                            is SyncState.Running -> sync.message
-                            is SyncState.Failed -> sync.message
-                            else -> "Your $label haven't been downloaded yet."
-                        },
-                        T.bodyLg, color = if (sync is SyncState.Failed) C.danger else C.inkMuted, maxLines = 3,
-                    )
-                    if (sync !is SyncState.Running) TvButton("Download $label", primary = true, modifier = Modifier.focusRequester(firstFocus), onClick = onDownload)
-                    LaunchedEffect(sync) { runCatching { firstFocus.requestFocus() } }
-                }
+                count == 0 -> FirstDownload(kind, sync, firstFocus, onDownload)
                 else -> {
                     HeroText(hero, Modifier.padding(top = S.s4).height(150.dp))
                     LazyColumn(
@@ -172,5 +174,54 @@ fun VodGridScreen(
                 }
             }
         }
+    }
+}
+
+/** First visit: the catalogue downloads once, with a real progress bar. */
+@Composable
+private fun FirstDownload(kind: String, sync: SyncState, focus: FocusRequester, onDownload: () -> Unit) {
+    val label = if (kind == "movie") "movies" else "series"
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Column(
+            Modifier.width(520.dp).clip(RoundedCornerShape(S.radiusLg)).background(C.bg100).padding(S.s6),
+            verticalArrangement = Arrangement.spacedBy(S.s3),
+        ) {
+            Txt(if (kind == "movie") "Getting your movies ready" else "Getting your series ready", T.titleLg)
+            when (sync) {
+                is SyncState.Running -> {
+                    Txt(sync.message, T.body, color = C.inkMuted)
+                    val f = sync.fraction
+                    if (f != null) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(S.s3)) {
+                            ProgressBar(f, Modifier.weight(1f), height = 8.dp)
+                            Txt("${(f * 100).toInt()}%", T.label, color = C.accent)
+                        }
+                    } else {
+                        IndeterminateBar(Modifier.fillMaxWidth())
+                    }
+                    Txt("This happens once. After that, Sync in Settings keeps it up to date.", T.caption, color = C.inkFaint, maxLines = 2)
+                }
+                is SyncState.Failed -> {
+                    Txt(sync.message, T.body, color = C.danger, maxLines = 3)
+                    TvButton("Try again", primary = true, modifier = Modifier.focusRequester(focus), onClick = onDownload)
+                    LaunchedEffect(Unit) { runCatching { focus.requestFocus() } }
+                }
+                else -> {
+                    Txt("Your $label haven't been downloaded yet.", T.body, color = C.inkMuted)
+                    TvButton("Download $label", primary = true, modifier = Modifier.focusRequester(focus), onClick = onDownload)
+                    LaunchedEffect(Unit) { runCatching { focus.requestFocus() } }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun IndeterminateBar(modifier: Modifier = Modifier) {
+    val t = rememberInfiniteTransition(label = "bar")
+    val x by t.animateFloat(0f, 1f, infiniteRepeatable(tween(1200, easing = LinearEasing)), label = "x")
+    BoxWithConstraints(modifier.height(8.dp).clip(RoundedCornerShape(50)).background(C.track)) {
+        val w = maxWidth * 0.3f
+        Box(Modifier.offset(x = (maxWidth + w) * x - w).width(w).fillMaxHeight().background(C.accent, RoundedCornerShape(50)))
     }
 }
