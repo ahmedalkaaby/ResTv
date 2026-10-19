@@ -75,6 +75,9 @@ class MatchesRepo(
 
     private fun cacheFile(date: String) = File(cacheDir, "matches/v2-$date.json")
 
+    /** Whatever was saved for this day, however old: shown at once while a fresh copy loads. */
+    suspend fun cached(date: String): Result? = withContext(Dispatchers.IO) { readCache(date) }
+
     private fun readCache(date: String): Result? = runCatching {
         val f = cacheFile(date)
         if (!f.exists()) return null

@@ -44,6 +44,10 @@ data class VodCard(
     val backdrop: String? = null,
     val plot: String? = null,
     val genre: String? = null,
+    /** Provider source/language tag: "EN", "AR", "AR SUBS". */
+    val source: String? = null,
+    /** Other sources of the same title, shown as "+2". */
+    val otherSources: List<String> = emptyList(),
 )
 
 data class Rail(val id: String, val title: String, val cards: List<VodCard>?, val accent: Boolean = false)
@@ -110,6 +114,7 @@ class VodViewModel(
             val n = if (isMovie) app.db.vod().countMovies(loginId) else app.db.vod().countSeries(loginId)
             _count.value = n
             if (n == 0) return@launch
+            catNames = app.db.vod().categories(loginId, kind).associate { it.categoryId to it.rawName }
             refreshPersonal()
             loadCategories()
             loadFixed()
@@ -218,9 +223,14 @@ class VodViewModel(
     }
 
     /** One poster per title: the same film often sits in several categories and qualities. */
-    private fun dedupe(cards: List<VodCard>): List<VodCard> =
-        cards.groupBy { VodNaming.key(it.title) + "|" + (it.year ?: "") }.values.map { g -> g.maxBy { it.quality } }
-            .let { best -> val keep = best.map { it.id }.toSet(); cards.filter { it.id in keep } }
+    private fun dedupe(cards: List<VodCard>): List<VodCard> {
+        val groups = cards.groupBy { VodNaming.key(it.title) + "|" + (it.year ?: "") }
+        val best = groups.values.associate { g ->
+            val b = g.maxBy { it.quality }
+            b.id to b.copy(otherSources = g.filter { it.id != b.id }.mapNotNull { it.source }.distinct().filter { it != b.source })
+        }
+        return cards.mapNotNull { best[it.id] }
+    }
 
     private var heroJob: Job? = null
 
@@ -253,8 +263,13 @@ class VodViewModel(
         }
     }
 
-    private fun MovieEntity.card() = VodCard("movie", streamId, name, year, poster, rating, quality)
-    private fun SeriesEntity.card() = VodCard("series", seriesId, name, year, poster, rating, backdrop = backdrop, plot = plot, genre = genre)
+    /** Category id → provider name, for titles whose source tag is only on the category ("AR SUBS | Netflix"). */
+    private var catNames: Map<String, String> = emptyMap()
+
+    private fun MovieEntity.card() = VodCard("movie", streamId, name, year, poster, rating, quality,
+        source = VodNaming.source(rawName, catNames[categoryId]))
+    private fun SeriesEntity.card() = VodCard("series", seriesId, name, year, poster, rating, backdrop = backdrop, plot = plot, genre = genre,
+        source = VodNaming.source(rawName, catNames[categoryId]))
 }
 
 fun duration(ms: Long): String {

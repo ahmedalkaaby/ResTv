@@ -75,6 +75,9 @@ fun Backdrop(url: String?, modifier: Modifier = Modifier, widthFraction: Float =
     }
 }
 
+/** Height of one rail: header, posters and room for the focus lift. */
+val RAIL_H = POSTER_H + 58.dp
+
 /** A 2:3 poster. Focus lifts it with a white ring; progress shows along the bottom. */
 @Composable
 fun PosterCard(
@@ -84,6 +87,7 @@ fun PosterCard(
     width: Dp = POSTER_W,
     height: Dp = POSTER_H,
     requestFocus: Boolean = false,
+    showTitle: Boolean = false,
     onFocus: () -> Unit,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
@@ -93,33 +97,46 @@ fun PosterCard(
     val fr = remember { FocusRequester() }
     if (focused) LaunchedEffect(Unit) { onFocus() }
     if (requestFocus) LaunchedEffect(Unit) { runCatching { fr.requestFocus() } }
-    val scale by animateFloatAsState(if (focused) 1.08f else 1f, tween(140), label = "poster")
+    val scale by animateFloatAsState(
+        if (focused) 1.07f else 1f,
+        androidx.compose.animation.core.spring(stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow),
+        label = "poster",
+    )
     val shape = RoundedCornerShape(S.radiusMd)
     Column(modifier.width(width), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Box(
             Modifier
                 .size(width, height)
-                .graphicsLayer { scaleX = scale; scaleY = scale }
-                .clip(shape)
+                .graphicsLayer { scaleX = scale; scaleY = scale; this.shape = shape; clip = true }
                 .background(C.bg200)
-                .then(if (focused) Modifier.border(2.dp, C.focus, shape) else Modifier)
+                .border(2.dp, if (focused) C.focus else Color.Transparent, shape)
                 .focusRequester(fr)
                 .remoteClickable(source, onClick, onLongClick),
         ) {
             PosterArt(card)
-            Row(Modifier.align(Alignment.TopStart).padding(6.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                if (card.quality == 3) Badge("4K", BadgeKind.Uhd, Modifier.background(C.scrimStrong, RoundedCornerShape(S.radiusSm)))
+            Row(Modifier.align(Alignment.TopStart).padding(5.dp), horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+                if (card.quality == 3) Chip("4K", C.uhd)
+                card.source?.let { Chip(it + if (card.otherSources.isNotEmpty()) " +${card.otherSources.size}" else "", C.ink) }
             }
-            if (inList) Txt("✓", T.label, color = C.accent, modifier = Modifier.align(Alignment.TopEnd).padding(6.dp).background(C.scrimStrong, RoundedCornerShape(50)).padding(horizontal = 6.dp))
+            if (inList) Txt("✓", T.label, color = C.accent, modifier = Modifier.align(Alignment.TopEnd).padding(5.dp).background(C.scrimStrong, RoundedCornerShape(50)).padding(horizontal = 6.dp))
             Column(Modifier.align(Alignment.BottomStart).fillMaxWidth()) {
                 if (card.note != null) {
-                    Txt(card.note, T.caption, color = C.ink, modifier = Modifier.padding(6.dp).background(C.scrimStrong, RoundedCornerShape(S.radiusSm)).padding(horizontal = 6.dp, vertical = 1.dp))
+                    Txt(card.note, T.caption, color = C.ink, modifier = Modifier.padding(5.dp).background(C.scrimStrong, RoundedCornerShape(S.radiusSm)).padding(horizontal = 6.dp, vertical = 1.dp))
                 }
                 card.progress?.let { ProgressBar(it, Modifier.fillMaxWidth(), height = 4.dp) }
             }
         }
-        Txt(card.title, T.caption, color = if (focused) C.ink else C.inkMuted)
+        if (showTitle) Txt(card.title, T.caption, color = if (focused) C.ink else C.inkMuted)
     }
+}
+
+/** Small label on artwork. */
+@Composable
+fun Chip(text: String, color: Color) {
+    Txt(
+        text, T.caption.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Bold), color = color,
+        modifier = Modifier.background(C.scrimStrong, RoundedCornerShape(S.radiusSm)).padding(horizontal = 5.dp, vertical = 1.dp),
+    )
 }
 
 /** Artwork, or the title on a tinted card when the provider has no poster. */
@@ -151,20 +168,22 @@ fun RailRow(
     onLongClick: (VodCard) -> Unit,
     onSeeAll: (() -> Unit)?,
     start: Dp = S.safeX,
+    nextTitle: String? = null,
+    showTitles: Boolean = false,
 ) {
     val cards = rail.cards.orEmpty()
     val state = rememberLazyListState()
-    Column(Modifier.fillMaxWidth().padding(bottom = S.s3), verticalArrangement = Arrangement.spacedBy(S.s2)) {
-        Txt(rail.title, T.title.copy(fontSize = T.label.fontSize.times(1.15f)), color = if (rail.accent) C.accent else C.ink, modifier = Modifier.padding(start = start))
+    Column(Modifier.fillMaxWidth().height(if (showTitles) RAIL_H + 22.dp else RAIL_H), verticalArrangement = Arrangement.spacedBy(S.s2)) {
+        RailHeader(rail.title, rail.accent, nextTitle, start)
         if (cards.isEmpty()) {
             SkeletonRow(start)
             return@Column
         }
         LazyRow(
             state = state,
-            contentPadding = PaddingValues(start = start, end = S.safeX),
+            contentPadding = PaddingValues(start = start, end = S.safeX, top = 6.dp, bottom = 6.dp),
             horizontalArrangement = Arrangement.spacedBy(14.dp),
-            modifier = Modifier.fillMaxWidth().height(POSTER_H + 30.dp),
+            modifier = Modifier.fillMaxWidth(),
         ) {
             items(cards.size, key = { "${cards[it].kind}${cards[it].id}" }) { i ->
                 val c = cards[i]
@@ -172,6 +191,7 @@ fun RailRow(
                     card = c,
                     inList = c.id in wishIds,
                     requestFocus = restoreCardId == c.id,
+                    showTitle = showTitles,
                     onFocus = { onFocus(c) },
                     onClick = { onClick(c) },
                     onLongClick = { onLongClick(c) },
@@ -179,6 +199,14 @@ fun RailRow(
             }
             if (onSeeAll != null) item(key = "all") { SeeAllTile(onSeeAll) }
         }
+    }
+}
+
+@Composable
+fun RailHeader(title: String, accent: Boolean, nextTitle: String?, start: Dp) {
+    Row(Modifier.fillMaxWidth().padding(start = start, end = S.safeX), verticalAlignment = Alignment.CenterVertically) {
+        Txt(title, T.title, color = if (accent) C.accent else C.ink, modifier = Modifier.weight(1f))
+        if (nextTitle != null) Txt("▾  $nextTitle", T.caption, color = C.inkFaint)
     }
 }
 
@@ -198,15 +226,25 @@ private fun SeeAllTile(onClick: () -> Unit) {
     ) { Txt("See all ›", T.label, color = if (focused) C.focusInk else C.inkMuted, modifier = Modifier, maxLines = 1) }
 }
 
-/** Title, facts and plot for the focused poster, above the rails. */
+/** Title, facts, sources and plot for the focused poster, above the rail. */
 @Composable
-fun HeroText(hero: Hero?, modifier: Modifier = Modifier) {
-    Column(modifier.padding(start = S.safeX, end = S.safeX).width(520.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+fun HeroInfo(hero: Hero?, modifier: Modifier = Modifier) {
+    Column(modifier.padding(start = S.safeX, end = S.safeX, bottom = S.s3).width(560.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         if (hero == null) return@Column
-        Txt(hero.card.title, T.display, maxLines = 1)
-        if (hero.meta.isNotBlank()) Txt(hero.meta, T.label, color = C.accent)
-        hero.plot?.let { Txt(it, T.body, color = C.inkMuted, maxLines = 3) }
+        Txt(hero.card.title, T.displayXl.copy(fontSize = T.display.fontSize.times(1.15f)), maxLines = 2)
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+            if (hero.meta.isNotBlank()) Txt(hero.meta, T.label, color = C.accent)
+            if (hero.card.quality == 3) Badge("4K", BadgeKind.Uhd)
+            (listOfNotNull(hero.card.source) + hero.card.otherSources).forEach { Badge(it, BadgeKind.Plain) }
+        }
+        hero.plot?.let { Txt(it, T.bodyLg, color = C.inkMuted, maxLines = 3) }
     }
+}
+
+/** Artwork behind the screen for the focused title. Its own composable, so only it redraws on focus. */
+@Composable
+fun HeroBackdrop(url: String?) {
+    androidx.compose.animation.Crossfade(targetState = url, animationSpec = tween(350), label = "backdrop") { u -> Backdrop(u) }
 }
 
 /** Placeholder posters that pulse while a rail loads. */
@@ -218,7 +256,7 @@ private fun SkeletonRow(start: Dp) {
         androidx.compose.animation.core.infiniteRepeatable(tween(800), androidx.compose.animation.core.RepeatMode.Reverse),
         label = "a",
     )
-    Row(Modifier.padding(start = start).height(POSTER_H + 30.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+    Row(Modifier.padding(start = start, top = 6.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
         repeat(8) {
             Box(Modifier.size(POSTER_W, POSTER_H).graphicsLayer { alpha = a }.clip(RoundedCornerShape(S.radiusMd)).background(C.bg200))
         }

@@ -24,6 +24,10 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.runtime.key
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
+import androidx.compose.runtime.CompositionLocalProvider
+import dev.k3be.restv.ui.home.HomeScreen
+import dev.k3be.restv.ui.live.LocalTopBarFocus
+import dev.k3be.restv.ui.live.TopBarFocus
 import dev.k3be.restv.ui.components.Toast
 import dev.k3be.restv.ui.vod.MovieDetailScreen
 import dev.k3be.restv.ui.vod.SeriesDetailScreen
@@ -62,13 +66,26 @@ fun AppRoot(vm: AppViewModel = viewModel()) {
     var exitHint by remember { mutableStateOf(false) }
     LaunchedEffect(exitHint) { if (exitHint) { delay(BACK_CONFIRM_MS); exitHint = false } }
 
-    // Every screen except Live, onboarding and the players: Back goes one step back.
-    BackHandler(enabled = route !is Route.Live && route !is Route.Onboarding && route !is Route.Player && route !is Route.VodPlayer) { vm.back() }
+    val topBar = remember { TopBarFocus() }
+    // Back: closes details and players first. On a tab, the first press moves focus up to the top bar,
+    // the next goes Home, and on Home a second press (with a hint) leaves the app.
+    BackHandler(enabled = route !is Route.Onboarding && route !is Route.Player && route !is Route.VodPlayer && route !is Route.Loading) {
+        if (vm.back()) return@BackHandler
+        when {
+            !topBar.hasFocus -> runCatching { topBar.requester.requestFocus() }
+            route != Route.Home -> vm.go(Route.Home)
+            else -> {
+                val now = System.currentTimeMillis()
+                if (now - lastBack < BACK_CONFIRM_MS) activity?.finish() else { lastBack = now; exitHint = true }
+            }
+        }
+    }
     val saveable = rememberSaveableStateHolder()
     val navigate: (SidebarItem) -> Unit = { item ->
         vm.go(
             when (item) {
                 SidebarItem.Search -> Route.Search
+                SidebarItem.Home -> Route.Home
                 SidebarItem.Live -> Route.Live
                 SidebarItem.Movies -> Route.Movies
                 SidebarItem.Series -> Route.Series
@@ -77,15 +94,27 @@ fun AppRoot(vm: AppViewModel = viewModel()) {
             }
         )
     }
-    // Leaving the app takes two presses, so a stray Back never closes it.
-    BackHandler(enabled = route is Route.Live || route is Route.Onboarding) {
+    // Leaving onboarding takes two presses, so a stray Back never closes it.
+    BackHandler(enabled = route is Route.Onboarding) {
         val now = System.currentTimeMillis()
         if (now - lastBack < BACK_CONFIRM_MS) activity?.finish()
         else { lastBack = now; exitHint = true }
     }
 
+    CompositionLocalProvider(LocalTopBarFocus provides topBar) {
     Box(Modifier.fillMaxSize().background(C.bg000)) {
         when (val r = route) {
+            Route.Home -> session?.let { s ->
+                saveable.SaveableStateProvider("home") {
+                    HomeScreen(
+                        session = s,
+                        onOpen = { c -> vm.go(if (c.kind == "movie") Route.MovieDetail(c.id) else Route.SeriesDetail(c.id)) },
+                        onPlayVod = { q, i -> vm.go(Route.VodPlayer(q, i)) },
+                        onPlayLive = { list, index -> vm.go(Route.Player(list, index)) },
+                        onNavigate = navigate,
+                    )
+                }
+            }
             Route.Loading -> {}
             Route.Onboarding -> OnboardingScreen(sync = sync, onConnect = vm::connect)
             Route.Live -> session?.let { s ->
@@ -150,6 +179,7 @@ fun AppRoot(vm: AppViewModel = viewModel()) {
         if (exitHint) {
             Toast("Press Back again to exit", Modifier.align(Alignment.BottomCenter).padding(bottom = S.safeY + S.s4))
         }
+    }
     }
 }
 

@@ -124,8 +124,43 @@ object VodNaming {
 
     data class Parsed(val title: String, val year: Int?)
 
+    /** "AR-SUBS - Title", "|EN| Title", "GR: Title": the provider's language/source tag. */
+    private val sourcePrefix = Regex(
+        """^\s*[|\[(]?\s*([A-Za-z]{2,3}(?:\s*[-_ ]\s*(?:SUBS|SUBBED|SUB|DUBBED|DUB|MULTI))?)\s*[|\]):\-–]+\s*""",
+        RegexOption.IGNORE_CASE,
+    )
+
+    /** Short tag shown on posters and versions: "EN", "AR", "AR SUBS", "GR"; null when the name has none. */
+    fun source(raw: String, categoryName: String? = null): String? {
+        fun from(s: String) = sourcePrefix.find(Naming.normalize(s))?.groupValues?.get(1)
+            ?.uppercase()?.replace(Regex("""\s*[-_ ]\s*"""), " ")
+            ?.replace("SUBBED", "SUBS")?.replace(Regex("""\bSUB$"""), "SUBS")?.replace("DUBBED", "DUB")
+            ?.takeIf { it.split(' ').first() !in notSources }
+        return from(raw) ?: categoryName?.let(::from)
+    }
+
+    private val notSources = setOf("THE", "4K", "UHD", "FHD", "HD", "SD", "VIP", "NEW", "TOP", "ALL")
+
+    /** Friendly words for a source tag, for the details page. */
+    fun sourceDescription(tag: String): String {
+        val parts = tag.split(' ')
+        val lang = when (parts.first()) {
+            "EN", "ENG" -> "English"; "AR", "ARA" -> "Arabic"; "FR" -> "French"; "DE", "GER" -> "German"
+            "GR", "GRE" -> "Greek"; "TR" -> "Turkish"; "ES", "SP" -> "Spanish"; "IT" -> "Italian"; "IN", "HI" -> "Hindi"
+            "KU", "KRD" -> "Kurdish"; "FA", "IR" -> "Persian"; "NL" -> "Dutch"; "PT" -> "Portuguese"
+            else -> parts.first()
+        }
+        return when (parts.getOrNull(1)) {
+            "SUBS" -> "$lang subtitles"
+            "DUB" -> "$lang dubbed"
+            "MULTI" -> "$lang · multi audio"
+            else -> lang
+        }
+    }
+
     fun parse(raw: String, yearField: String? = null): Parsed {
-        var n = Naming.split(raw).name
+        var n = sourcePrefix.replace(Naming.normalize(raw), "")
+        n = Naming.split(n).name
         n = leadingTag.replace(n, "")
         n = Naming.split(n).name // double prefixes: "4K | EN - Title"
         var year = yearField?.take(4)?.toIntOrNull()?.takeIf { it in 1900..2100 }

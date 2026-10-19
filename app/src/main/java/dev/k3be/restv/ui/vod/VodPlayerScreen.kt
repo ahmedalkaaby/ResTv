@@ -143,16 +143,19 @@ fun VodPlayerScreen(
     var notice by remember { mutableStateOf<String?>(null) }
     var retries by remember { mutableIntStateOf(0) }
 
+    // Saves run on the app's scope: the screen's own scope is already cancelled when Back closes it.
+    // The item is read from [index] each time, so the next episode never overwrites the previous one.
     fun save() {
+        val cur = queue[index]
         val pos = player.currentPosition
-        val dur = player.duration.takeIf { it > 0 && it != MC.TIME_UNSET } ?: item.durationMs
-        if (pos < 5_000 && !ended) return
+        val dur = player.duration.takeIf { it > 0 && it != MC.TIME_UNSET } ?: cur.durationMs
+        if (pos < 3_000 && !ended) return
         val w = WatchEntity(
-            accountId, loginId, item.kind, item.id, item.seriesId, item.season, item.episode,
-            item.title, item.subtitle, item.image, item.ext,
+            accountId, loginId, cur.kind, cur.id, cur.seriesId, cur.season, cur.episode,
+            cur.title, cur.subtitle, cur.image, cur.ext,
             if (ended) dur else pos, dur, System.currentTimeMillis(),
         )
-        scope.launch { app.db.watch().upsert(w) }
+        app.appScope.launch { app.db.watch().upsert(w) }
     }
 
     DisposableEffect(Unit) {
@@ -208,20 +211,21 @@ fun VodPlayerScreen(
         while (isActive) {
             position = player.currentPosition
             if (player.duration > 0) duration = player.duration
-            if (++tick % 30 == 0 && player.isPlaying) save()
+            if (++tick % 20 == 0 && player.isPlaying) save()
             delay(500)
         }
     }
     LaunchedEffect(overlayToken) { overlay = true; delay(4_000); if (player.isPlaying) overlay = false }
     LaunchedEffect(notice) { if (notice != null) { delay(3_000); notice = null } }
 
+    fun goNext() { save(); index++ }
     val hasNext = index < queue.lastIndex && queue[index + 1].kind == "episode"
     var countdown by remember { mutableIntStateOf(0) }
     LaunchedEffect(ended) {
         if (!ended || !hasNext) return@LaunchedEffect
         for (n in 10 downTo 1) { countdown = n; delay(1_000) }
         countdown = 0
-        index++
+        goNext()
     }
 
     val focus = remember { FocusRequester() }
@@ -257,7 +261,7 @@ fun VodPlayerScreen(
                     Key.DirectionCenter, Key.Enter, Key.NumPadEnter, Key.MediaPlayPause -> {
                         if (repeat > 0) return@onKeyEvent true
                         if (error != null) { error = null; retries = 0; player.prepare(); player.play(); return@onKeyEvent true }
-                        if (ended && hasNext) { index++; return@onKeyEvent true }
+                        if (ended && hasNext) { goNext(); return@onKeyEvent true }
                         if (player.isPlaying) player.pause() else player.play()
                         overlayToken++
                         true
@@ -266,7 +270,7 @@ fun VodPlayerScreen(
                     Key.MediaPause -> { player.pause(); overlayToken++; true }
                     Key.DirectionUp, Key.Menu -> { panelOpen = true; true }
                     Key.DirectionDown -> { overlayToken++; true }
-                    Key.MediaNext -> { if (hasNext) index++; true }
+                    Key.MediaNext -> { if (hasNext) goNext(); true }
                     else -> false
                 }
             }

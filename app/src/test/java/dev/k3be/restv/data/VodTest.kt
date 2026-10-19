@@ -16,6 +16,18 @@ class VodTest {
         assertNull(VodNaming.parse("AR - الحشاشين").year)
     }
 
+    @Test fun sourceTags() {
+        assertEquals("AR SUBS", VodNaming.source("AR-SUBS - The Bear (2022)"))
+        assertEquals("AR SUBS", VodNaming.source("|AR SUB| The Bear"))
+        assertEquals("EN", VodNaming.source("EN - The Bear"))
+        assertEquals("GR", VodNaming.source("GR: The Bear"))
+        assertEquals("AR", VodNaming.source("The Bear", "AR | Netflix Series"))
+        assertNull(VodNaming.source("The Bear"))
+        assertEquals("The Bear", VodNaming.parse("AR-SUBS - The Bear (2022)").title)
+        assertEquals(VodNaming.key(VodNaming.parse("AR-SUBS - The Bear").title), VodNaming.key(VodNaming.parse("EN - The Bear").title))
+        assertEquals("Arabic subtitles", VodNaming.sourceDescription("AR SUBS"))
+    }
+
     @Test fun keysMatchAcrossSources() {
         assertEquals(VodNaming.key("The Godfather"), VodNaming.key("Godfather"))
         assertEquals(VodNaming.key("Amélie"), VodNaming.key("Amelie"))

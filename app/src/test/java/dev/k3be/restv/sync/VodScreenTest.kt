@@ -77,6 +77,15 @@ class VodScreenTest {
         rule.waitForIdle()
     }
 
+    @Test fun homeRenders() {
+        val (_, session) = start()
+        rule.setContent { dev.k3be.restv.ui.home.HomeScreen(session, {}, { _, _ -> }, { _, _ -> }, {}) }
+        rule.waitForIdle()
+        Thread.sleep(3000)
+        rule.mainClock.advanceTimeBy(5000)
+        rule.waitForIdle()
+    }
+
     @Test fun seriesDetailRenders() {
         val (_, session) = start()
         rule.setContent { SeriesDetailScreen(session, 1) { _, _, _ -> } }

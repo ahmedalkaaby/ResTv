@@ -300,6 +300,7 @@ object Icons {
     val sync = stroke("sync", "M4 12a8 8 0 0 1 14 -5.3L20 9M20 4v5h-5M20 12a8 8 0 0 1 -14 5.3L4 15M4 20v-5h5")
     val check = stroke("check", "M5 12.5l4.5 4.5L19 7.5")
     val history = stroke("history", "M3 12a9 9 0 1 0 3 -6.7L3 8", "M3 3v5h5M12 7v5l3 2")
+    val home = stroke("home", "M4 11l8 -7 8 7", "M6 9.5v10h12v-10", "M10 19.5v-5h4v5")
     val film = stroke("film", "M4 5h16a1 1 0 0 1 1 1v12a1 1 0 0 1 -1 1h-16a1 1 0 0 1 -1 -1v-12a1 1 0 0 1 1 -1z", "M7 5v14M17 5v14M3 9h4M3 15h4M17 9h4M17 15h4")
     val series = stroke("series", "M4 8h16a1 1 0 0 1 1 1v10a1 1 0 0 1 -1 1h-16a1 1 0 0 1 -1 -1v-10a1 1 0 0 1 1 -1z", "M7 4h10", "M10 11.5v5l4 -2.5z")
     val download = stroke("download", "M12 4v12M7 11l5 5 5 -5M5 20h14")

@@ -92,25 +92,34 @@ fun MatchesScreen(
     val gridState = rememberLazyGridState()
 
     LaunchedEffect(dayOffset, reload) {
-        load = Load.Loading
-        load = try {
-            val date = LocalDate.now().plusDays(dayOffset.toLong()).toString()
-            val r = app.matches.fetch(date, force = reload > 0)
+        val date = LocalDate.now().plusDays(dayOffset.toLong()).toString()
+        fun ready(r: dev.k3be.restv.data.MatchesRepo.Result, note: String): Load {
             val sorted = r.matches.filter { it.broadcasters.isNotEmpty() || it.url != null }.sortedWith(
                 compareBy<Match>({ app.matches.priority(it) }, { it.competition.orEmpty() }, { it.kickoff ?: Long.MAX_VALUE })
             )
-            Load.Ready(sorted, "From ${r.source} · updated ${timeFmt.format(Date(r.fetchedAt))}")
+            return Load.Ready(sorted, note)
+        }
+        // Show the saved schedule at once; a fresh one replaces it when it arrives.
+        val saved = if (reload == 0) app.matches.cached(date) else null
+        load = saved?.let { ready(it, "Saved at ${timeFmt.format(Date(it.fetchedAt))} · checking for updates…") } ?: Load.Loading
+        load = try {
+            val r = app.matches.fetch(date, force = reload > 0)
+            ready(r, "From ${r.source} · updated ${timeFmt.format(Date(r.fetchedAt))}")
         } catch (e: Exception) {
-            Load.Error(e.message ?: "Couldn't load matches")
+            saved?.let { ready(it, "Saved at ${timeFmt.format(Date(it.fetchedAt))} · couldn't refresh: ${e.message}") }
+                ?: Load.Error(e.message ?: "Couldn't load matches")
         }
     }
     LaunchedEffect(load) {
         val l = load as? Load.Ready ?: return@LaunchedEffect
-        runCatching { firstMatch.requestFocus() }
+        if (selected == null) runCatching { firstMatch.requestFocus() }
         // Look up your leagues' matches in the background so the list shows real channel counts and crests.
         val gate = Semaphore(2)
         coroutineScope {
-            l.matches.filter { app.matches.priority(it) < 99 }.take(40).forEach { m ->
+            // Only your leagues' matches that are live or start in the next 12 hours: fewer pages to load.
+            val now = System.currentTimeMillis()
+            l.matches.filter { app.matches.priority(it) < 99 && (it.kickoff == null || it.kickoff in (now - 150 * 60_000)..(now + 12 * 3_600_000)) }
+                .take(16).forEach { m ->
                 if (m.id in covered) return@forEach
                 launch { gate.withPermit { runCatching { covered[m.id] = app.matches.coverage(session.login.id, m) } } }
             }

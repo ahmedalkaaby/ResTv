@@ -18,6 +18,10 @@ class Prefs(context: Context) {
     )
     val agent: StateFlow<Agent> = _agent
 
+    /** Version of the movie/series name parser the saved catalogue was built with. */
+    fun vodParser(): Int = sp.getInt("vodParser", 0)
+    fun setVodParser(v: Int) { sp.edit().putInt("vodParser", v).apply() }
+
     fun audioToken(): String? = sp.getString("audioToken", null)?.takeIf { it.isNotBlank() }
 
     fun setAudioToken(token: String) {

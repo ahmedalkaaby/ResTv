@@ -46,6 +46,7 @@ import dev.k3be.restv.Session
 import dev.k3be.restv.data.Episode
 import dev.k3be.restv.data.MovieInfo
 import dev.k3be.restv.data.Naming
+import dev.k3be.restv.data.VodNaming
 import dev.k3be.restv.data.SeriesInfo
 import dev.k3be.restv.data.db.MovieEntity
 import dev.k3be.restv.data.db.SeriesEntity
@@ -103,7 +104,9 @@ fun MovieDetailScreen(
     val i = info
     fun play(fromStart: Boolean) {
         onPlay(
-            listOf(PlayItem("movie", current.streamId, 0, 0, 0, i?.title ?: m.name, listOfNotNull(m.year?.toString(), i?.genre).joinToString(" · ").ifBlank { null },
+            listOf(PlayItem("movie", current.streamId, 0, 0, 0, i?.title ?: m.name,
+                listOfNotNull(VodNaming.source(current.rawName)?.let(VodNaming::sourceDescription), Naming.qualityLabel(current.quality), m.year?.toString(), i?.genre)
+                    .joinToString(" · ").ifBlank { null },
                 i?.backdrop ?: m.poster, i?.ext ?: current.ext, i?.durationMs ?: 0)),
             0, fromStart,
         )
@@ -126,6 +129,7 @@ fun MovieDetailScreen(
                     )
                     Txt(meta.joinToString("  ·  "), T.label, color = C.accent)
                     if (current.quality == 3) Badge("4K", BadgeKind.Uhd)
+                    VodNaming.source(current.rawName)?.let { Badge(VodNaming.sourceDescription(it), BadgeKind.Plain) }
                 }
                 Txt(i?.plot ?: if (error != null) "Couldn't load the details: $error" else "", T.body, color = C.inkMuted, maxLines = 4, modifier = Modifier.width(560.dp))
                 listOfNotNull(i?.director?.let { "Director  $it" }, i?.cast?.let { "Cast  $it" }).forEach {
@@ -155,7 +159,8 @@ fun MovieDetailScreen(
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(S.s2)) {
                         items(versions.size) { k ->
                             val v = versions[k]
-                            val label = listOfNotNull(Naming.qualityLabel(v.quality) ?: "SD", Naming.sourceTag(v.rawName)).joinToString(" · ")
+                            val src = VodNaming.source(v.rawName)
+                            val label = listOfNotNull(src?.let { "$it · ${VodNaming.sourceDescription(it)}" } ?: "Other", Naming.qualityLabel(v.quality)).joinToString(" · ")
                             TvButton((if (v.streamId == chosen) "✓ " else "") + label, primary = v.streamId == chosen) { chosen = v.streamId }
                         }
                     }
@@ -173,6 +178,18 @@ fun SeriesDetailScreen(
     id: Long,
     onPlay: (List<PlayItem>, Int, Boolean) -> Unit,
 ) {
+    // Other language versions of the same show switch in place.
+    var current by remember { mutableStateOf(id) }
+    androidx.compose.runtime.key(current) { SeriesDetailBody(session, current, { current = it }, onPlay) }
+}
+
+@Composable
+private fun SeriesDetailBody(
+    session: Session,
+    id: Long,
+    onSwitch: (Long) -> Unit,
+    onPlay: (List<PlayItem>, Int, Boolean) -> Unit,
+) {
     val app = LocalContext.current.applicationContext as RestvApp
     val scope = rememberCoroutineScope()
     val accountId = session.account.id
@@ -180,8 +197,14 @@ fun SeriesDetailScreen(
     var series by remember { mutableStateOf<SeriesEntity?>(null) }
     var info by remember { mutableStateOf<SeriesInfo?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
+    var versions by remember { mutableStateOf<List<SeriesEntity>>(emptyList()) }
     LaunchedEffect(id) {
         series = app.db.vod().series(loginId, id)
+        series?.let { s0 ->
+            versions = app.db.vod().seriesByKeys(loginId, listOf(s0.titleKey))
+                .filter { it.year == null || s0.year == null || kotlin.math.abs(it.year - s0.year) <= 1 }
+                .sortedByDescending { it.seriesId == id }
+        }
         info = runCatching { app.vod.seriesInfo(session.login, id) }.onFailure { error = it.message }.getOrNull()
     }
     val watched by remember { app.db.watch().observeSeries(accountId, loginId, id) }.collectAsState(emptyList<WatchEntity>())
@@ -211,7 +234,8 @@ fun SeriesDetailScreen(
 
     val title = i?.title ?: s?.name ?: ""
     fun queue(): List<PlayItem> = all.map { e ->
-        PlayItem("episode", e.id, id, e.season, e.number, title, "S${e.season}:E${e.number} · ${e.title}",
+        PlayItem("episode", e.id, id, e.season, e.number, title,
+            listOfNotNull("S${e.season}:E${e.number} · ${e.title}", s?.let { VodNaming.source(it.rawName) }?.let(VodNaming::sourceDescription)).joinToString(" · "),
             e.image ?: i?.backdrop ?: s?.backdrop ?: s?.poster, e.ext, e.durationMs)
     }
     fun play(index: Int) {
@@ -231,7 +255,10 @@ fun SeriesDetailScreen(
                     (i?.genre ?: s?.genre)?.split(',')?.take(3)?.joinToString(", ") { it.trim() },
                     (i?.rating ?: s?.rating)?.let { "★ %.1f".format(it) },
                 )
-                Txt(meta.joinToString("  ·  "), T.label, color = C.accent)
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Txt(meta.joinToString("  ·  "), T.label, color = C.accent)
+                    s?.let { VodNaming.source(it.rawName) }?.let { Badge(VodNaming.sourceDescription(it), BadgeKind.Plain) }
+                }
                 Txt(i?.plot ?: s?.plot ?: if (error != null) "Couldn't load the episodes: $error" else "Loading…", T.body, color = C.inkMuted, maxLines = 3)
             }
             Row(Modifier.padding(start = S.safeX), horizontalArrangement = Arrangement.spacedBy(S.s2)) {
@@ -248,6 +275,10 @@ fun SeriesDetailScreen(
                         if (inList) app.db.wish().remove(accountId, loginId, "series", id)
                         else app.db.wish().add(WishEntity(accountId, loginId, "series", id, System.currentTimeMillis()))
                     }
+                }
+                // Other versions of this show (EN, AR, AR SUBS…): one press switches.
+                versions.filter { it.seriesId != id }.forEach { v ->
+                    TvButton(VodNaming.source(v.rawName)?.let { "$it version" } ?: "Other version") { onSwitch(v.seriesId) }
                 }
             }
             if (i != null && i.seasons.isNotEmpty()) {

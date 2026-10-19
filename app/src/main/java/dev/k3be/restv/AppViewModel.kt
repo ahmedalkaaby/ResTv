@@ -14,12 +14,16 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
+/** Bump when VodNaming changes how saved titles should be parsed. */
+const val VOD_PARSER = 2
+
 data class Session(val account: AccountEntity, val login: LoginEntity)
 
 sealed interface Route {
     data object Loading : Route
     data object Onboarding : Route
     data object Live : Route
+    data object Home : Route
     data object Settings : Route
     data object Search : Route
     data object Matches : Route
@@ -77,8 +81,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             } else {
                 app.db.accounts().touch(account.id, System.currentTimeMillis())
                 _session.value = Session(account, login)
-                _route.value = Route.Live
+                _route.value = Route.Home
                 if (login.lastSyncAt == null) syncNow()
+                // A newer name parser (source tags like "AR SUBS") re-reads the catalogue once, in the background.
+                else if (app.prefs.vodParser() < VOD_PARSER && app.db.vod().countMovies(login.id) + app.db.vod().countSeries(login.id) > 0) syncVodNow()
             }
         }
         viewModelScope.launch {
@@ -91,7 +97,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    private fun isTab(r: Route) = r is Route.Live || r is Route.Movies || r is Route.Series || r is Route.Search ||
+    fun isTab(r: Route) = r is Route.Home || r is Route.Live || r is Route.Movies || r is Route.Series || r is Route.Search ||
         r is Route.Matches || r is Route.Settings
 
     fun go(route: Route) {
@@ -105,14 +111,11 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         _route.value = route
     }
 
-    /** Back: closes the top screen; from a tab other than Live, returns to Live. */
+    /** Back from a screen opened on top of a tab (details, players): returns to it. False on a tab itself. */
     fun back(): Boolean {
-        val current = _route.value
-        if (stack.isNotEmpty()) {
-            _route.value = stack.removeAt(stack.lastIndex)
-            return true
-        }
-        return if (isTab(current) && current !is Route.Live) { _route.value = Route.Live; true } else false
+        if (stack.isEmpty()) return false
+        _route.value = stack.removeAt(stack.lastIndex)
+        return true
     }
 
     fun syncVodNow(first: String = "movie") {
@@ -121,6 +124,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             try {
                 app.sync.syncVod(login, first) { msg, f -> _sync.value = SyncState.Running(msg, f) }
+                app.prefs.setVodParser(VOD_PARSER)
                 _sync.value = SyncState.Idle
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
@@ -145,7 +149,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 val login = probe.copy(id = loginId, accountId = accountId)
                 _session.value = Session(account, login)
                 runSync(login)
-                if (_sync.value !is SyncState.Failed) _route.value = Route.Live
+                if (_sync.value !is SyncState.Failed) _route.value = Route.Home
             } catch (e: Exception) {
                 _sync.value = SyncState.Failed(e.message ?: "Couldn't connect")
             }
@@ -163,6 +167,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             _sync.value = SyncState.Running("Starting")
             app.sync.syncLive(login) { msg -> _sync.value = SyncState.Running(msg) }
             app.sync.syncVod(login) { msg, f -> _sync.value = SyncState.Running(msg, f) }
+            app.prefs.setVodParser(VOD_PARSER)
             _sync.value = SyncState.Idle
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e

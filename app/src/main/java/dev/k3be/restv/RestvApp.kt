@@ -16,7 +16,21 @@ import okhttp3.OkHttpClient
 import java.util.concurrent.TimeUnit
 
 /** Holds the app's single instances. Small enough that a DI framework isn't worth it yet. */
-class RestvApp : Application() {
+class RestvApp : Application(), coil.ImageLoaderFactory {
+
+    /**
+     * Posters and backdrops: half-size pixels (RGB565) and a disk cache, which keeps scrolling smooth
+     * on TV hardware; images fade in instead of popping.
+     */
+    override fun newImageLoader(): coil.ImageLoader = coil.ImageLoader.Builder(this)
+        .okHttpClient { http }
+        .allowRgb565(true)
+        .crossfade(180)
+        .respectCacheHeaders(false)
+        .memoryCache { coil.memory.MemoryCache.Builder(this).maxSizePercent(0.20).build() }
+        .diskCache { coil.disk.DiskCache.Builder().directory(cacheDir.resolve("images")).maxSizeBytes(250L * 1024 * 1024).build() }
+        .build()
+
 
     /** Keeps the last crash's stack trace so the next launch can show it. */
     val crashFile: java.io.File get() = java.io.File(filesDir, "last_crash.txt")
@@ -33,6 +47,9 @@ class RestvApp : Application() {
             previous?.uncaughtException(thread, e)
         }
     }
+
+    /** Work that must finish even after the screen that started it closes (saving progress). */
+    val appScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO)
 
     val json: Json by lazy { Json { ignoreUnknownKeys = true; isLenient = true } }
 

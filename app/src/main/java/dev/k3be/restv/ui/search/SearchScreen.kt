@@ -125,6 +125,7 @@ fun SearchScreen(
                             onLongClick = {},
                             onSeeAll = null,
                             start = 0.dp,
+                            showTitles = true,
                         )
                     }
                 }

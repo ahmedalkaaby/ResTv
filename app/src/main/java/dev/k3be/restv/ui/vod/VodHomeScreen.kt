@@ -65,10 +65,8 @@ fun VodHomeScreen(
     val vm = rememberVodViewModel(session, kind)
     val count by vm.count.collectAsStateWithLifecycle()
     val rails by vm.rails.collectAsStateWithLifecycle()
-    val hero by vm.hero.collectAsStateWithLifecycle()
     val wishIds by vm.wishIds.collectAsStateWithLifecycle()
     val tab = if (kind == "movie") SidebarItem.Movies else SidebarItem.Series
-    val label = if (kind == "movie") "movies" else "series"
     var toast by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(toast) { if (toast != null) { delay(2_500); toast = null } }
 
@@ -81,49 +79,92 @@ fun VodHomeScreen(
     // First visit with nothing downloaded: start the download.
     LaunchedEffect(count) { if (count == 0 && sync !is SyncState.Running) onDownload() }
 
-    // Coming back from a title restores focus on its poster; otherwise the first poster gets focus.
-    val restore = remember { vm.lastFocus }
-    var restored by remember { mutableStateOf(false) }
-    val listState = rememberLazyListState()
     val firstFocus = remember { FocusRequester() }
 
     Box(Modifier.fillMaxSize()) {
-        Backdrop(hero?.backdrop ?: hero?.card?.poster?.takeIf { hero?.backdrop == null && kind == "series" })
+        VodHeroBackdrop(vm)
         Column(Modifier.fillMaxSize()) {
             TopBar(tab, onNavigate)
             when {
                 count == null -> {}
                 count == 0 -> FirstDownload(kind, sync, firstFocus, onDownload)
                 else -> {
-                    HeroText(hero, Modifier.padding(top = S.s4).height(150.dp))
-                    LazyColumn(
-                        state = listState,
-                        modifier = Modifier.fillMaxWidth().weight(1f),
-                        contentPadding = PaddingValues(top = S.s2, bottom = S.s8),
-                    ) {
-                        items(rails.size, key = { rails[it].id }) { i ->
-                            val rail = rails[i]
-                            LaunchedEffect(rail.id) { vm.loadRail(rail.id) }
-                            val restoreId = restore?.takeIf { it.startsWith("${rail.id}|") }?.substringAfter('|')?.toLongOrNull()
-                            val firstRail = restore == null && i == 0
-                            RailRow(
-                                rail = rail,
-                                wishIds = wishIds,
-                                restoreCardId = if (restored) null else restoreId ?: if (firstRail) rail.cards?.firstOrNull()?.id else null,
-                                onFocus = { c -> restored = true; vm.focus(c); vm.lastFocus = "${rail.id}|${c.id}" },
-                                onClick = onOpen,
-                                onLongClick = { c ->
-                                    toast = if (c.id in wishIds) "Removed from My List" else "Added to My List"
-                                    vm.toggleWish(c)
-                                },
-                                onSeeAll = if ((rail.cards?.size ?: 0) >= 8 || rail.id.startsWith("cat:")) ({ onSeeAll(rail) }) else null,
-                            )
-                        }
-                    }
+                    Box(Modifier.fillMaxWidth().weight(1f)) { VodHeroInfo(vm, Modifier.align(Alignment.BottomStart)) }
+                    OneRailAtATime(
+                        rails = rails,
+                        wishIds = wishIds,
+                        restore = vm.lastFocus,
+                        onRailShown = vm::loadRail,
+                        onFocus = { rail, c -> vm.focus(c); vm.lastFocus = "${rail.id}|${c.id}" },
+                        onClick = onOpen,
+                        onLongClick = { c ->
+                            toast = if (c.id in wishIds) "Removed from My List" else "Added to My List"
+                            vm.toggleWish(c)
+                        },
+                        onSeeAll = { rail -> if ((rail.cards?.size ?: 0) >= 8 || rail.id.startsWith("cat:")) ({ onSeeAll(rail) }) else null },
+                    )
                 }
             }
         }
         toast?.let { Toast(it, Modifier.align(Alignment.BottomCenter).padding(bottom = S.safeY)) }
+    }
+}
+
+@Composable
+private fun VodHeroBackdrop(vm: VodViewModel) {
+    val hero by vm.hero.collectAsStateWithLifecycle()
+    // Wait for focus to settle before swapping the big picture: fast scrolling stays smooth.
+    var shown by remember { mutableStateOf<String?>(null) }
+    val target = hero?.backdrop ?: hero?.card?.poster?.takeIf { vm.kind == "series" }
+    LaunchedEffect(target) { delay(250); shown = target }
+    HeroBackdrop(shown)
+}
+
+@Composable
+private fun VodHeroInfo(vm: VodViewModel, modifier: Modifier) {
+    val hero by vm.hero.collectAsStateWithLifecycle()
+    HeroInfo(hero, modifier)
+}
+
+/**
+ * Rails stacked vertically in a viewport exactly one rail tall: Up/Down slide to the next rail,
+ * so only one row of posters is ever on screen under the hero.
+ */
+@Composable
+fun OneRailAtATime(
+    rails: List<Rail>,
+    wishIds: Set<Long>,
+    restore: String?,
+    onRailShown: (String) -> Unit,
+    onFocus: (Rail, VodCard) -> Unit,
+    onClick: (VodCard) -> Unit,
+    onLongClick: (VodCard) -> Unit,
+    onSeeAll: (Rail) -> (() -> Unit)?,
+) {
+    val listState = rememberLazyListState()
+    val start = remember { restore }
+    var restored by remember { mutableStateOf(false) }
+    LazyColumn(
+        state = listState,
+        userScrollEnabled = false,
+        modifier = Modifier.fillMaxWidth().height(RAIL_H),
+    ) {
+        items(rails.size, key = { rails[it].id }) { i ->
+            val rail = rails[i]
+            LaunchedEffect(rail.id) { onRailShown(rail.id) }
+            val restoreId = start?.takeIf { it.startsWith("${rail.id}|") }?.substringAfter('|')?.toLongOrNull()
+            val firstRail = start == null && i == 0
+            RailRow(
+                rail = rail,
+                wishIds = wishIds,
+                restoreCardId = if (restored) null else restoreId ?: if (firstRail) rail.cards?.firstOrNull()?.id else null,
+                onFocus = { c -> restored = true; onFocus(rail, c) },
+                onClick = onClick,
+                onLongClick = onLongClick,
+                onSeeAll = onSeeAll(rail),
+                nextTitle = rails.getOrNull(i + 1)?.title,
+            )
+        }
     }
 }
 
@@ -166,6 +207,7 @@ fun VodGridScreen(
                     PosterCard(
                         card = c,
                         inList = c.id in wishIds,
+                        showTitle = true,
                         requestFocus = !focusedAny && (startId ?: list.first().id) == c.id,
                         onFocus = { focusedAny = true; vm.gridFocus[railId] = c.id },
                         onClick = { onOpen(c) },
