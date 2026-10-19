@@ -117,7 +117,8 @@ object Naming {
 object VodNaming {
     private val yearParen = Regex("""[(\[]\s*((?:19|20)\d{2})\s*[)\]]""")
     private val yearTail = Regex("""[\s\-–|:]+((?:19|20)\d{2})\s*$""")
-    private val brackets = Regex("""\[[^\]]*]|\{[^}]*}""")
+    // Android's regex engine (ICU) needs closing ] and } escaped too.
+    private val brackets = Regex("""\[[^\]]*\]|\{[^\}]*\}""")
     private val tags = Regex("""(?i)(?<![A-Z0-9])(4K|UHD|2160P?|FHD|1080P?|HD|720P?|SD|HEVC|H\.?265|x265|HDR10?\+?|DV|DOLBY VISION|MULTI[- ]?SUBS?|MULTI[- ]?AUDIO|SUB(?:BED|S)?|DUBBED|VOSTFR)(?![A-Z0-9])""")
     private val leadingTag = Regex("""^\s*(?:4K|UHD|FHD|HD|VIP|NF|AMZ|DSNP|ATVP|HMAX)\s*[|:\-–]+\s*""", RegexOption.IGNORE_CASE)
 

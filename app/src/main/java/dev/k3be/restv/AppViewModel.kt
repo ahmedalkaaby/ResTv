@@ -122,8 +122,11 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             try {
                 app.sync.syncVod(login, first) { msg, f -> _sync.value = SyncState.Running(msg, f) }
                 _sync.value = SyncState.Idle
-            } catch (e: Exception) {
-                _sync.value = SyncState.Failed(e.message ?: "Couldn't download movies and series")
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Throwable) {
+                // Any failure, even an Error from a parser, ends as a message instead of closing the app.
+                _sync.value = SyncState.Failed("Couldn't download movies and series: ${e.message ?: e.javaClass.simpleName}")
             }
         }
     }
@@ -161,7 +164,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             app.sync.syncLive(login) { msg -> _sync.value = SyncState.Running(msg) }
             app.sync.syncVod(login) { msg, f -> _sync.value = SyncState.Running(msg, f) }
             _sync.value = SyncState.Idle
-        } catch (e: Exception) {
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Throwable) {
             _sync.value = SyncState.Failed(e.message ?: "Sync failed")
         }
     }
