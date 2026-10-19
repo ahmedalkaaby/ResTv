@@ -28,7 +28,7 @@ import dev.k3be.restv.ui.components.FocusRow
 import dev.k3be.restv.ui.components.Txt
 import dev.k3be.restv.ui.live.ChannelRow
 import dev.k3be.restv.ui.live.ChannelRowContent
-import dev.k3be.restv.ui.live.Sidebar
+import dev.k3be.restv.ui.live.NavScaffold
 import dev.k3be.restv.ui.live.SidebarItem
 import dev.k3be.restv.ui.live.groupVariants
 import dev.k3be.restv.ui.live.rememberLiveViewModel
@@ -78,8 +78,7 @@ fun SearchScreen(
         )
     }
 
-    Row(Modifier.fillMaxSize()) {
-        Sidebar(active = SidebarItem.Search, onSelect = { if (it != SidebarItem.Search) onNavigate(it) })
+    NavScaffold(active = SidebarItem.Search, onSelect = onNavigate) {
         Column(
             Modifier.fillMaxHeight().padding(start = 24.dp, top = S.safeY, end = S.safeX),
             verticalArrangement = Arrangement.spacedBy(S.s3),

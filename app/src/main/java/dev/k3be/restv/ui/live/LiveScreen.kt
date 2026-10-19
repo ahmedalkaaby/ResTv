@@ -179,8 +179,7 @@ fun LiveScreen(
         }
     }
 
-    Row(Modifier.fillMaxSize()) {
-        Sidebar(active = SidebarItem.Live, onSelect = { if (it != SidebarItem.Live) onNavigate(it) })
+    NavScaffold(active = SidebarItem.Live, onSelect = onNavigate) {
         CategoriesPane(
             vm = vm,
             entries = entries,

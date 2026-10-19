@@ -32,6 +32,13 @@ import coil.compose.AsyncImage
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.foundation.layout.size
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
+import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.foundation.layout.Box
+import androidx.compose.ui.unit.Dp
 import dev.k3be.restv.ui.components.Badge
 import dev.k3be.restv.ui.components.BadgeKind
 import dev.k3be.restv.ui.components.FocusRow
@@ -39,7 +46,7 @@ import dev.k3be.restv.ui.components.TvButton
 import dev.k3be.restv.ui.components.Txt
 import dev.k3be.restv.ui.live.ChannelGrid
 import dev.k3be.restv.ui.live.ChannelRow
-import dev.k3be.restv.ui.live.Sidebar
+import dev.k3be.restv.ui.live.NavScaffold
 import dev.k3be.restv.ui.live.SidebarItem
 import dev.k3be.restv.ui.live.groupVariants
 import dev.k3be.restv.ui.live.rememberLiveViewModel
@@ -59,7 +66,12 @@ private sealed interface Load {
     data class Error(val message: String) : Load
 }
 
-/** Today's football with the best channels in your subscription for each match, 4K first. */
+private sealed interface Entry {
+    data class Header(val title: String) : Entry
+    data class Item(val match: Match) : Entry
+}
+
+/** Today's football, your leagues first, with the best channels in your subscription for each match, 4K first. */
 @Composable
 fun MatchesScreen(
     session: Session,
@@ -74,7 +86,7 @@ fun MatchesScreen(
     var load by remember { mutableStateOf<Load>(Load.Loading) }
     var selected by remember { mutableStateOf<Match?>(null) }
     var rows by remember { mutableStateOf<List<ChannelRow>>(emptyList()) }
-    var cov by remember { mutableStateOf<MatchesRepo.Coverage?>(null) }
+    val covered = remember { mutableStateMapOf<String, MatchesRepo.Coverage>() }
     var looking by remember { mutableStateOf(false) }
     val firstMatch = remember { FocusRequester() }
     val gridState = rememberLazyGridState()
@@ -84,31 +96,44 @@ fun MatchesScreen(
         load = try {
             val date = LocalDate.now().plusDays(dayOffset.toLong()).toString()
             val r = app.matches.fetch(date, force = reload > 0)
-            Load.Ready(r.matches.filter { it.broadcasters.isNotEmpty() }, "From ${r.source} · updated ${timeFmt.format(Date(r.fetchedAt))}")
+            val sorted = r.matches.filter { it.broadcasters.isNotEmpty() || it.url != null }.sortedWith(
+                compareBy<Match>({ app.matches.priority(it) }, { it.competition.orEmpty() }, { it.kickoff ?: Long.MAX_VALUE })
+            )
+            Load.Ready(sorted, "From ${r.source} · updated ${timeFmt.format(Date(r.fetchedAt))}")
         } catch (e: Exception) {
             Load.Error(e.message ?: "Couldn't load matches")
         }
     }
-    LaunchedEffect(load) { if (load is Load.Ready) runCatching { firstMatch.requestFocus() } }
+    LaunchedEffect(load) {
+        val l = load as? Load.Ready ?: return@LaunchedEffect
+        runCatching { firstMatch.requestFocus() }
+        // Look up your leagues' matches in the background so the list shows real channel counts and crests.
+        val gate = Semaphore(2)
+        coroutineScope {
+            l.matches.filter { app.matches.priority(it) < 99 }.take(40).forEach { m ->
+                if (m.id in covered) return@forEach
+                launch { gate.withPermit { runCatching { covered[m.id] = app.matches.coverage(session.login.id, m) } } }
+            }
+        }
+    }
     LaunchedEffect(selected) {
         val m = selected ?: return@LaunchedEffect
-        cov = null
-        rows = emptyList()
-        looking = true
-        delay(350) // scrolling past matches shouldn't load every page
-        val c = app.matches.coverage(session.login.id, m)
+        val ready = covered[m.id]
+        if (ready == null) {
+            rows = emptyList()
+            looking = true
+            delay(350) // scrolling past matches shouldn't load every page
+        }
+        val c = ready ?: app.matches.coverage(session.login.id, m).also { covered[m.id] = it }
         rows = groupVariants(c.channels).sortedWith(
             compareByDescending<ChannelRow> { it.main.quality }.thenBy { it.main.name.lowercase() }
         )
-        cov = c
         looking = false
     }
 
-    Row(Modifier.fillMaxSize()) {
-        Sidebar(active = SidebarItem.Matches, onSelect = { if (it != SidebarItem.Matches) onNavigate(it) })
-        Column(Modifier.width(360.dp).fillMaxHeight().padding(start = 24.dp, top = S.safeY)) {
+    NavScaffold(active = SidebarItem.Matches, onSelect = onNavigate) {
+        Column(Modifier.width(420.dp).fillMaxHeight().padding(top = S.s3)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(S.s2)) {
-                Txt("Matches", T.titleLg, modifier = Modifier.padding(end = 8.dp))
                 TvButton("Today", primary = dayOffset == 0) { dayOffset = 0 }
                 TvButton("Tomorrow", primary = dayOffset == 1) { dayOffset = 1 }
                 TvButton("↻") { reload++ }
@@ -119,26 +144,52 @@ fun MatchesScreen(
                 is Load.Ready -> {
                     Txt(l.note, T.caption, color = C.inkFaint, modifier = Modifier.padding(top = S.s2))
                     if (l.matches.isEmpty()) Txt("No televised matches found for this day.", T.body, color = C.inkMuted, modifier = Modifier.padding(top = S.s4))
-                    LazyColumn(Modifier.padding(top = S.s3), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        items(l.matches.size, key = { l.matches[it].id }) { i ->
-                            val m = l.matches[i]
-                            MatchRow(m, selected?.id == m.id, if (i == 0) Modifier.focusRequester(firstMatch) else Modifier) { selected = m }
+                    val entries = remember(l) {
+                        buildList {
+                            var last: String? = null
+                            l.matches.forEach { m ->
+                                val title = m.competition ?: "Other"
+                                if (title != last) { add(Entry.Header(title)); last = title }
+                                add(Entry.Item(m))
+                            }
+                        }
+                    }
+                    val firstId = l.matches.firstOrNull()?.id
+                    LazyColumn(Modifier.padding(top = S.s2), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        items(entries.size, key = { i ->
+                            when (val e = entries[i]) { is Entry.Header -> "h$i"; is Entry.Item -> e.match.id }
+                        }) { i ->
+                            when (val e = entries[i]) {
+                                is Entry.Header -> Txt(e.title, T.caption, color = C.accent, modifier = Modifier.padding(start = 12.dp, top = if (i == 0) 0.dp else S.s3))
+                                is Entry.Item -> {
+                                    val m = e.match
+                                    val c = covered[m.id]
+                                    MatchRow(
+                                        m = m,
+                                        homeLogo = c?.homeLogo ?: app.matches.logoFor(m, home = true),
+                                        awayLogo = c?.awayLogo ?: app.matches.logoFor(m, home = false),
+                                        coverage = c,
+                                        selected = selected?.id == m.id,
+                                        modifier = if (m.id == firstId) Modifier.focusRequester(firstMatch) else Modifier,
+                                    ) { selected = m }
+                                }
+                            }
                         }
                     }
                 }
             }
         }
-        Column(Modifier.weight(1f).fillMaxHeight().padding(start = S.s4, top = S.safeY, end = S.safeX)) {
+        Column(Modifier.weight(1f).fillMaxHeight().padding(start = S.s4, top = S.s3, end = S.safeX)) {
             val m = selected
             if (m == null) {
-                Txt("Pick a match to see your channels for it.", T.body, color = C.inkMuted, modifier = Modifier.padding(top = 44.dp))
+                Txt("Pick a match to see your channels for it.", T.body, color = C.inkMuted, modifier = Modifier.padding(top = 12.dp))
                 return@Column
             }
-            val c = cov
+            val c = covered[m.id]
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(S.s2)) {
-                Crest(c?.homeLogo)
+                Crest(c?.homeLogo, 36.dp)
                 Txt("${m.home} v ${m.away}", T.title)
-                Crest(c?.awayLogo)
+                Crest(c?.awayLogo, 36.dp)
             }
             Txt(
                 listOfNotNull(m.competition, m.kickoff?.let { timeFmt.format(Date(it)) }).joinToString(" · ") +
@@ -148,9 +199,8 @@ fun MatchesScreen(
             if (c != null) {
                 val countries = c.countries.values.flatten().groupingBy { it }.eachCount().entries
                     .sortedByDescending { it.value }.map { it.key }
-                if (countries.isNotEmpty()) Txt("From ${countries.take(8).joinToString(", ")}", T.caption, color = C.inkFaint, maxLines = 1)
+                if (countries.isNotEmpty()) Txt("From ${countries.joinToString(", ")}", T.caption, color = C.inkFaint, maxLines = 1)
                 if (!c.worldwide) Txt("Couldn't load worldwide channels, showing your region only.", T.caption, color = C.inkFaint)
-                if (c.missing.isNotEmpty()) Txt("${c.missing.size} other broadcasters aren't in your list", T.caption, color = C.inkFaint)
             }
             if (looking) {
                 Txt("Finding channels…", T.body, color = C.inkMuted, modifier = Modifier.padding(top = S.s4))
@@ -177,27 +227,47 @@ fun MatchesScreen(
 }
 
 @Composable
-private fun Crest(url: String?) {
-    if (url == null) return
-    AsyncImage(model = url, contentDescription = null, contentScale = ContentScale.Fit, modifier = Modifier.size(36.dp))
+private fun Crest(url: String?, size: Dp) {
+    Box(Modifier.size(size), contentAlignment = Alignment.Center) {
+        if (url != null) AsyncImage(model = url, contentDescription = null, contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize())
+    }
 }
 
 @Composable
-private fun MatchRow(m: Match, selected: Boolean, modifier: Modifier, onFocus: () -> Unit) {
+private fun MatchRow(
+    m: Match,
+    homeLogo: String?,
+    awayLogo: String?,
+    coverage: MatchesRepo.Coverage?,
+    selected: Boolean,
+    modifier: Modifier,
+    onFocus: () -> Unit,
+) {
     val now = System.currentTimeMillis()
     val isLive = m.kickoff != null && now >= m.kickoff && now - m.kickoff < 2 * 60 * 60_000
-    FocusRow(modifier = modifier, selected = selected, height = 56.dp, onFocused = onFocus, onClick = onFocus) { _ ->
+    FocusRow(modifier = modifier, selected = selected, height = 64.dp, onFocused = onFocus, onClick = onFocus) { _ ->
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(S.s3),
         ) {
             Txt(m.kickoff?.let { timeFmt.format(Date(it)) } ?: "--:--", T.label, color = if (isLive) C.liveText else C.inkMuted, modifier = Modifier.width(44.dp))
-            Column(Modifier.weight(1f)) {
-                Txt("${m.home} v ${m.away}", T.label)
-                Txt(m.competition ?: "", T.caption, color = C.inkFaint)
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Crest(homeLogo, 20.dp); Txt(m.home, T.label)
+                }
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Crest(awayLogo, 20.dp); Txt(m.away, T.label)
+                }
             }
-            if (isLive) Badge("LIVE", BadgeKind.Live) else Txt("${m.broadcasters.size} ch", T.caption, color = C.inkFaint)
+            Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                if (isLive) Badge("LIVE", BadgeKind.Live)
+                if (coverage != null) {
+                    val n = groupVariants(coverage.channels).size
+                    if (coverage.channels.any { it.quality == 3 }) Badge("4K", BadgeKind.Uhd)
+                    Txt(if (n == 0) "no channels" else "$n ch", T.caption, color = C.inkFaint)
+                }
+            }
         }
     }
 }

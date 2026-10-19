@@ -9,6 +9,8 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -42,51 +44,58 @@ enum class SidebarItem(val label: String, val icon: ImageVector) {
     Settings("Settings", Icons.settings),
 }
 
-/** Collapsed icons while browsing; expands with labels when it has focus. */
+/** Top navigation bar with each screen's content below it. */
 @Composable
-fun Sidebar(active: SidebarItem, onSelect: (SidebarItem) -> Unit) {
-    var expanded by remember { mutableStateOf(false) }
-    val width by animateDpAsState(if (expanded) 200.dp else 64.dp, tween(150), label = "sidebar")
-    Column(
-        Modifier
-            .width(width)
-            .fillMaxHeight()
-            .background(if (expanded) C.bg100 else C.bg000)
-            .onFocusChanged { expanded = it.hasFocus }
-            .padding(vertical = S.safeY, horizontal = 12.dp),
-        verticalArrangement = Arrangement.spacedBy(4.dp),
-    ) {
-        NavItem(SidebarItem.Search, active == SidebarItem.Search, expanded) { onSelect(SidebarItem.Search) }
-        Spacer(Modifier.height(12.dp))
-        NavItem(SidebarItem.Live, active == SidebarItem.Live, expanded) { onSelect(SidebarItem.Live) }
-        NavItem(SidebarItem.Matches, active == SidebarItem.Matches, expanded) { onSelect(SidebarItem.Matches) }
-        Spacer(Modifier.weight(1f))
-        NavItem(SidebarItem.Settings, active == SidebarItem.Settings, expanded) { onSelect(SidebarItem.Settings) }
+fun NavScaffold(active: SidebarItem, onSelect: (SidebarItem) -> Unit, content: @Composable RowScope.() -> Unit) {
+    Column(Modifier.fillMaxSize()) {
+        TopBar(active, onSelect)
+        Row(Modifier.fillMaxWidth().weight(1f).padding(start = 24.dp), content = content)
     }
 }
 
 @Composable
-private fun NavItem(item: SidebarItem, active: Boolean, expanded: Boolean, onClick: () -> Unit) {
+fun TopBar(active: SidebarItem, onSelect: (SidebarItem) -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().padding(start = S.safeX, end = S.safeX, top = 16.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Txt("Restv", T.title, color = C.accent, modifier = Modifier.padding(end = S.s4))
+        listOf(SidebarItem.Live, SidebarItem.Matches, SidebarItem.Search).forEach { item ->
+            NavItem(item, active == item) { if (item != active) onSelect(item) }
+        }
+        Spacer(Modifier.weight(1f))
+        NavItem(SidebarItem.Settings, active == SidebarItem.Settings) { if (active != SidebarItem.Settings) onSelect(SidebarItem.Settings) }
+    }
+}
+
+@Composable
+private fun NavItem(item: SidebarItem, active: Boolean, onClick: () -> Unit) {
     val source = remember { MutableInteractionSource() }
     val focused by source.collectIsFocusedAsState()
     val fg = when {
         focused -> C.focusInk
-        active -> C.accent
+        active -> C.ink
         else -> C.inkMuted
     }
     Box(
         Modifier
-            .fillMaxWidth()
             .height(40.dp)
-            .clip(RoundedCornerShape(S.radiusMd))
-            .background(if (focused) C.focus else C.bg000.copy(alpha = 0f))
+            .clip(RoundedCornerShape(50))
+            .background(
+                when {
+                    focused -> C.focus
+                    active -> C.bg100
+                    else -> C.bg000.copy(alpha = 0f)
+                }
+            )
             .remoteClickable(source, onClick)
-            .padding(horizontal = 10.dp),
-        contentAlignment = Alignment.CenterStart,
+            .padding(horizontal = 16.dp),
+        contentAlignment = Alignment.Center,
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(S.s3)) {
-            Icon(item.icon, fg, 20.dp)
-            if (expanded) Txt(item.label, T.label, color = fg)
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Icon(item.icon, if (active && !focused) C.accent else fg, 18.dp)
+            Txt(item.label, T.label, color = fg)
         }
     }
 }

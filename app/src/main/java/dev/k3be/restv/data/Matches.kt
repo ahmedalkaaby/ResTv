@@ -33,6 +33,10 @@ data class Match(
     val broadcasters: List<String>,
     /** LiveSoccerTV match page, for worldwide broadcasters and crests. */
     val url: String? = null,
+    /** Competition path, e.g. "england/premier-league". */
+    val league: String? = null,
+    val homeLogo: String? = null,
+    val awayLogo: String? = null,
 )
 
 /**
@@ -69,7 +73,7 @@ class MatchesRepo(
         )
     }
 
-    private fun cacheFile(date: String) = File(cacheDir, "matches/$date.json")
+    private fun cacheFile(date: String) = File(cacheDir, "matches/v2-$date.json")
 
     private fun readCache(date: String): Result? = runCatching {
         val f = cacheFile(date)
@@ -94,6 +98,9 @@ class MatchesRepo(
                         put("away", m.away)
                         put("channels", buildJsonArray { m.broadcasters.forEach { add(JsonPrimitive(it)) } })
                         m.url?.let { put("url", it) }
+                        m.league?.let { put("league", it) }
+                        m.homeLogo?.let { put("home_logo", it) }
+                        m.awayLogo?.let { put("away_logo", it) }
                     })
                 }
             })
@@ -128,6 +135,9 @@ class MatchesRepo(
                 away = o.str("away") ?: "",
                 broadcasters = (o["channels"] as? JsonArray)?.mapNotNull { (it as? JsonPrimitive)?.content } ?: emptyList(),
                 url = o.str("url"),
+                league = o.str("league"),
+                homeLogo = o.str("home_logo"),
+                awayLogo = o.str("away_logo"),
             )
         }
     }
@@ -145,25 +155,140 @@ class MatchesRepo(
 
     suspend fun coverage(loginId: Long, match: Match): Coverage = withContext(Dispatchers.IO) {
         val detail = match.url?.let { url -> runCatching { detail(match.id, url, match.home, match.away) }.getOrNull() }
+        // (country key, broadcaster name), only from the countries the user watches.
         val pairs = LinkedHashSet<Pair<String, String>>()
-        match.broadcasters.forEach { pairs += "" to it }
-        detail?.coverage?.let { pairs += it }
+        detail?.coverage?.forEach { (country, name) -> countryKey(country)?.let { pairs += it to name } }
+        // The schedule page lists the viewer's own region (Iraq); use it when the match page has no Iraq row.
+        if (pairs.none { it.first == "iraq" }) match.broadcasters.forEach { pairs += "iraq" to it }
 
         val idx = index(loginId)
         val found = LinkedHashMap<Long, ChannelEntity>()
         val countries = HashMap<Long, MutableList<String>>()
         val missing = LinkedHashSet<String>()
-        val byName = pairs.groupBy({ it.second }, { it.first })
-        for ((name, cs) in byName) {
-            val hits = lookup(idx, name)
+        for ((country, name) in pairs) {
+            val allowed = countryCodes.getValue(country)
+            val hits = lookup(idx, name).filter { ch ->
+                val code = Naming.split(ch.rawName).code
+                code !in knownCountryCodes || code in allowed
+            }
             if (hits.isEmpty()) { missing += name; continue }
             for (ch in hits) {
                 found[ch.streamId] = ch
                 val list = countries.getOrPut(ch.streamId) { ArrayList() }
-                cs.filter { it.isNotEmpty() && it !in list }.forEach { list += it }
+                val label = countryLabels.getValue(country)
+                if (label !in list) list += label
             }
         }
-        Coverage(found.values.toList(), countries, missing.toList(), detail?.homeLogo, detail?.awayLogo, detail != null)
+        if (detail != null) {
+            detail.homeLogo?.let { learnLogo(match.home, it) }
+            detail.awayLogo?.let { learnLogo(match.away, it) }
+        }
+        Coverage(
+            found.values.toList(), countries, missing.toList(),
+            detail?.homeLogo ?: logoFor(match, home = true),
+            detail?.awayLogo ?: logoFor(match, home = false),
+            detail != null,
+        )
+    }
+
+    // ---- Countries the user follows. Provider prefixes from other countries are a different feed
+    // (beIN Sports 3 Australia is not beIN Sports 3 MENA), so those are skipped.
+
+    private val countryNames = mapOf(
+        "iraq" to "iraq",
+        "great britain" to "uk", "united kingdom" to "uk", "england" to "uk", "uk" to "uk",
+        "usa" to "us", "united states" to "us", "united states of america" to "us", "us" to "us",
+        "spain" to "spain", "finland" to "finland", "sweden" to "sweden", "germany" to "germany",
+        "italy" to "italy", "france" to "france", "saudi arabia" to "saudi", "canada" to "canada",
+    )
+
+    private fun countryKey(name: String): String? = countryNames[name.trim().lowercase()]
+
+    private val countryLabels = mapOf(
+        "iraq" to "Iraq", "uk" to "UK", "us" to "US", "spain" to "Spain", "finland" to "Finland",
+        "sweden" to "Sweden", "germany" to "Germany", "italy" to "Italy", "france" to "France",
+        "saudi" to "Saudi Arabia", "canada" to "Canada",
+    )
+
+    private val arabCodes = setOf("AR", "ARB", "ARA", "IQ", "KU", "KRD", "MENA", "SA", "KSA", "AE", "UAE", "QA", "KW", "JO", "BH", "OM")
+
+    private val countryCodes = mapOf(
+        "iraq" to arabCodes,
+        "saudi" to arabCodes,
+        "uk" to setOf("UK", "GB", "EN", "ENG"),
+        "us" to setOf("US", "USA", "EN"),
+        "canada" to setOf("CA", "CAN", "EN"),
+        "spain" to setOf("ES", "SP", "ESP"),
+        "finland" to setOf("FI", "FIN"),
+        "sweden" to setOf("SE", "SW", "SWE"),
+        "germany" to setOf("DE", "GER"),
+        "italy" to setOf("IT", "ITA"),
+        "france" to setOf("FR", "FRA"),
+    )
+
+    /** Prefixes that name a country. Anything else ("NM", "SS", "VIP") is a provider tag and is allowed. */
+    private val knownCountryCodes = countryCodes.values.flatten().toSet() + setOf(
+        "PT", "NL", "BE", "TR", "IN", "PK", "IR", "EG", "MA", "DZ", "TN", "AU", "BR", "MX", "PL", "RU", "NO",
+        "DK", "GR", "AL", "PH", "NZ", "IE", "AT", "CH", "LB", "SY", "AZ", "RO", "HU", "CZ", "SK", "HR", "RS",
+        "BG", "UA", "IL", "ZA", "NG", "KE", "GH", "JP", "KR", "CN", "HK", "SG", "MY", "ID", "TH", "VN", "AF",
+        "LAT", "ARG", "CL", "CO", "PE", "EX", "EXYU", "BIH", "MK", "SI", "LT", "LV", "EE", "IS", "CY", "MT",
+    )
+
+    // ---- League priority: the user's leagues first, in his order; everything else after.
+
+    fun priority(m: Match): Int {
+        val l = m.league.orEmpty().lowercase()
+        val c = fold(m.competition.orEmpty())
+        val t = "$l $c"
+        if (listOf("women", "femen", "u17", "u19", "u20", "u21", "u23", "youth", "premier-league-2", "premier league 2", "reserve").any { it in t }) return 99
+        val teams = fold("${m.home} ${m.away}")
+        return when {
+            ("england" in l && l.endsWith("premier-league")) || (l.isEmpty() && c == "premier league") -> 0
+            ("real madrid" in teams && "castilla" !in teams) ||
+                ("spain" in l && listOf("primera", "la-liga", "laliga").any { it in l }) || "la liga" in c || "laliga" in c -> 1
+            ("champions-league" in l || "champions league" in c) && listOf("afc", "caf", "concacaf", "asia", "africa").none { it in t } -> 2
+            ("germany" in l && l.endsWith("/bundesliga")) || (l.isEmpty() && c == "bundesliga") -> 3
+            ("italy" in l && l.endsWith("serie-a")) || (l.isEmpty() && c == "serie a") -> 4
+            ("france" in l && l.endsWith("ligue-1")) || (l.isEmpty() && c == "ligue 1") -> 5
+            "saudi" in t -> 6
+            "iraq" in t -> 7
+            ("turkey" in l && "super-lig" in l) || "super lig" in c -> 8
+            else -> 99
+        }
+    }
+
+    private fun fold(s: String) =
+        java.text.Normalizer.normalize(s, java.text.Normalizer.Form.NFD).replace(Regex("""\p{M}+"""), "").lowercase()
+
+    // ---- Team crests: from the schedule row, crests learned from match pages, or a guess from the
+    // league's country and the team's slug in the match link.
+
+    private val logoFile = File(cacheDir, "matches/logos.json")
+    private val learned: MutableMap<String, String> by lazy {
+        val map = java.util.concurrent.ConcurrentHashMap<String, String>()
+        runCatching {
+            json.parseToJsonElement(logoFile.readText()).jsonObject.forEach { (k, v) -> (v as? JsonPrimitive)?.content?.let { map[k] = it } }
+        }
+        map
+    }
+
+    private fun learnLogo(team: String, url: String) {
+        if (learned.put(team.lowercase(), url) == url) return
+        runCatching {
+            logoFile.parentFile?.mkdirs()
+            logoFile.writeText(buildJsonObject { learned.forEach { (k, v) -> put(k, v) } }.toString())
+        }
+    }
+
+    fun logoFor(m: Match, home: Boolean): String? {
+        (if (home) m.homeLogo else m.awayLogo)?.let { return it }
+        learned[(if (home) m.home else m.away).lowercase()]?.let { return it }
+        val country = m.league?.split('/')?.takeIf { it.size >= 2 }?.first()
+            ?.takeIf { it !in setOf("international", "europe", "world", "asia", "africa", "south-america", "north-america", "club-friendlies") }
+            ?: return null
+        val slugs = m.url?.trimEnd('/')?.substringAfter("/match/", "")?.substringBefore('/')?.split("-vs-")
+            ?.takeIf { it.size == 2 } ?: return null
+        return "https://cdn.livesoccertv.com/tt/images/teams/$country/logos/${if (home) slugs[0] else slugs[1]}.png"
     }
 
     private fun lookup(idx: Map<String, List<ChannelEntity>>, broadcaster: String): List<ChannelEntity> {

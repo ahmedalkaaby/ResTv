@@ -35,7 +35,7 @@ import dev.k3be.restv.ui.components.Icons
 import dev.k3be.restv.ui.components.SectionLabel
 import dev.k3be.restv.ui.components.TvButton
 import dev.k3be.restv.ui.components.Txt
-import dev.k3be.restv.ui.live.Sidebar
+import dev.k3be.restv.ui.live.NavScaffold
 import dev.k3be.restv.ui.live.SidebarItem
 import dev.k3be.restv.ui.live.rememberLiveViewModel
 import dev.k3be.restv.ui.onboarding.TvTextField
@@ -97,8 +97,7 @@ fun SettingsScreen(session: Session, sync: SyncState, onSync: () -> Unit, onNavi
         }
     }
 
-    Row(Modifier.fillMaxSize()) {
-        Sidebar(active = SidebarItem.Settings, onSelect = { if (it != SidebarItem.Settings) onNavigate(it) })
+    NavScaffold(active = SidebarItem.Settings, onSelect = onNavigate) {
         Column(
             Modifier.fillMaxHeight().verticalScroll(rememberScrollState()).padding(start = 24.dp, top = S.safeY, end = S.safeX, bottom = S.safeY),
             verticalArrangement = Arrangement.spacedBy(S.s3),

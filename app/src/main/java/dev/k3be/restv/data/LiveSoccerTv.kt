@@ -94,11 +94,13 @@ class LiveSoccerTv(private val http: OkHttpClient) {
         val doc = Jsoup.parse(html, "https://www.livesoccertv.com/")
         val out = ArrayList<Match>()
         var competition: String? = null
+        var league: String? = null
         for (tr in doc.select("tr")) {
             val matchLink = tr.selectFirst("a[href*=/match/]")
             val compLink = tr.selectFirst("a[href*=/competitions/]")
             if (compLink != null && matchLink == null) {
                 competition = clean(compLink.text())
+                league = compLink.attr("href").substringAfter("/competitions/", "").trim('/').ifBlank { null }
                 continue
             }
             if (matchLink == null) continue
@@ -111,6 +113,8 @@ class LiveSoccerTv(private val http: OkHttpClient) {
                 val name = channelName(a.attr("title").ifBlank { a.text() })
                 if (name.isNotEmpty()) channels += name
             }
+            val rowLogos = tr.select("img").map { it.absUrl("src").ifBlank { it.absUrl("data-src") } }
+                .filter { it.contains("/teams/") && it.contains("/logos/") }.distinct()
             out += Match(
                 id = md5("$date|$home|$away").take(12),
                 kickoff = kickoff(tr, date, zone),
@@ -119,6 +123,9 @@ class LiveSoccerTv(private val http: OkHttpClient) {
                 away = away,
                 broadcasters = channels.toList(),
                 url = matchLink.absUrl("href").substringBefore('#').ifBlank { null },
+                league = league,
+                homeLogo = rowLogos.getOrNull(0),
+                awayLogo = rowLogos.getOrNull(1),
             )
         }
         return out.sortedBy { it.kickoff ?: Long.MAX_VALUE }
