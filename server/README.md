@@ -1,89 +1,98 @@
-# Restv matches server
+# restv-server
 
-A tiny Laravel module that, once or twice a day, reads today's and tomorrow's football from
-LiveSoccerTV (kick-off, competition, teams, TV channels per match) and serves it as JSON to Restv.
-The TV never scrapes anything; if LiveSoccerTV changes its page, you fix one file here.
+Daily football matches and their TV channels for the Restv TV app.
+Twice a day it reads today's and tomorrow's schedule from LiveSoccerTV and saves it as JSON;
+Restv asks for it with one request:
 
 ```
 GET https://restv.k3be.dev/api/matches?date=2026-10-19
-Header: X-Restv-Key: <your key>
+Header: X-Restv-Key: <RESTV_KEY from .env>
 ```
 
-## Files
+No database is used. Data lives in `storage/app/private/matches/*.json` (one file per day, a week is kept).
 
-| Copy this | To your Laravel app |
+## What's in here
+
+| File | Job |
 | --- | --- |
-| `app/Services/LiveSoccerTv.php` | `app/Services/LiveSoccerTv.php` |
-| `app/Console/Commands/FetchMatches.php` | `app/Console/Commands/FetchMatches.php` |
-| `app/Http/Controllers/MatchesController.php` | `app/Http/Controllers/MatchesController.php` |
-| `config/restv.php` | `config/restv.php` |
+| `app/Services/LiveSoccerTv.php` | Downloads and parses one day's schedule |
+| `app/Console/Commands/FetchMatches.php` | `php artisan restv:matches` saves today + tomorrow |
+| `app/Http/Controllers/MatchesController.php` | `/api/matches`, checks the key, serves the saved JSON |
+| `config/restv.php` | Settings read from `.env` |
+| `routes/web.php` | The API route |
+| `routes/console.php` | Runs the fetch at 05:00 and 15:00 Baghdad time |
+| `.env` | Already filled in: app key, `RESTV_KEY`, timezone, file cache/sessions |
 
-## Setup on shared hosting (cPanel)
+`.env` holds secrets. Don't commit it or share it.
 
-1. **Make the Laravel app** on your computer (needs PHP 8.2+ and Composer):
-   ```
-   composer create-project laravel/laravel restv-server
-   ```
-   Copy the four files above into it.
+## 1. Test it on your Mac
 
-2. **Add the route** at the end of `routes/web.php`:
-   ```php
-   Route::get('/api/matches', [\App\Http\Controllers\MatchesController::class, 'index']);
-   ```
+Needs PHP 8.3+ and Composer (`brew install php composer` if missing).
 
-3. **Add the schedule** at the end of `routes/console.php` (Laravel 11/12):
-   ```php
-   use Illuminate\Support\Facades\Schedule;
+```
+cd ~/Documents/restv-server
+composer install
+php artisan restv:matches --dump
+php artisan serve
+```
 
-   Schedule::command('restv:matches --days=2')->twiceDaily(5, 15)->timezone('Asia/Baghdad');
-   ```
-   Twice a day catches late channel announcements. Change to `->dailyAt('05:00')` for once a day.
+`restv:matches --dump` should print something like `2026-10-19: 84 matches, 61 with channels`
+plus three sample matches. Then open:
 
-4. **Settings** in `.env`:
-   ```
-   APP_ENV=production
-   APP_DEBUG=false
-   RESTV_KEY=paste-a-long-random-string-here
-   RESTV_TIMEZONE=Asia/Baghdad
-   RESTV_LSTV_COOKIES=
-   ```
-   Make a key with `php -r "echo bin2hex(random_bytes(16));"` and keep it; the app needs the same value.
+```
+http://127.0.0.1:8000/api/matches?key=YOUR_RESTV_KEY
+```
 
-5. **Upload** the whole folder to your hosting, outside `public_html`, e.g. `/home/USER/restv-server`.
+(`YOUR_RESTV_KEY` is the `RESTV_KEY=` line in `.env`.)
 
-6. **Subdomain:** in cPanel → Domains, create `restv.k3be.dev` with its document root set to
-   `/home/USER/restv-server/public`. Turn on SSL (AutoSSL / Let's Encrypt) for it.
+## 2. Put it on the shared server (cPanel)
 
-7. **Cron job:** cPanel → Cron Jobs, every minute:
+1. **Check PHP:** cPanel → *MultiPHP Manager* (or *Select PHP Version*): set PHP **8.3 or newer** for the
+   domain you'll use. This project uses Laravel 13, which needs 8.3.
+2. **Install dependencies on your Mac first:** run `composer install --no-dev --optimize-autoloader` so the
+   `vendor/` folder is complete (shared hosts often have no Composer).
+3. **Zip and upload:** zip the whole `restv-server` folder, including `vendor/` and `.env`
+   (Finder hides `.env`; press ⌘⇧. to show hidden files). In cPanel *File Manager*, upload it to your
+   home folder (next to `public_html`, **not inside it**) and *Extract*. You should end up with
+   `/home/USERNAME/restv-server`.
+4. **Subdomain:** cPanel → *Domains* → *Create A New Domain*: `restv.k3be.dev`, untick "share document
+   root", set the document root to `restv-server/public`.
+5. **SSL:** cPanel → *SSL/TLS Status* → run AutoSSL for `restv.k3be.dev` (DNS can take a few minutes).
+6. **Permissions:** in File Manager, make sure `storage/` and `bootstrap/cache/` are writable (755 is usually
+   fine on cPanel).
+7. **Cron job:** cPanel → *Cron Jobs* → *Add New Cron Job*, every minute:
    ```
-   * * * * * cd /home/USER/restv-server && php artisan schedule:run >> /dev/null 2>&1
+   * * * * * cd /home/USERNAME/restv-server && php artisan schedule:run >> /dev/null 2>&1
    ```
-   If your host only allows a few cron runs, use this instead (05:00 and 15:00 server time):
+   If `php` there is the wrong version, use the full path your host gives, e.g.
+   `/opt/cpanel/ea-php83/root/usr/bin/php`. If your host limits crons, use this instead (05:00 and 15:00):
    ```
-   0 5,15 * * * cd /home/USER/restv-server && php artisan restv:matches --days=2 >> /dev/null 2>&1
+   0 5,15 * * * cd /home/USERNAME/restv-server && php artisan restv:matches --days=2 >> /dev/null 2>&1
    ```
-   On some hosts the PHP binary has a version in its path, like `/usr/local/bin/ea-php83`.
-
-8. **First run and test** (cPanel Terminal or SSH):
+8. **First fetch:** cPanel → *Terminal* (or SSH):
    ```
    cd ~/restv-server
    php artisan config:cache
    php artisan restv:matches --dump
    ```
-   You should see lines like `2026-10-19: 84 matches, 61 with channels`, then three sample matches.
-   Then open in a browser:
-   `https://restv.k3be.dev/api/matches?key=YOUR_KEY`
+9. **Check in a browser:** `https://restv.k3be.dev/api/matches?key=YOUR_RESTV_KEY`
+10. **In Restv on the TV:** Settings → *Matches server* → URL `https://restv.k3be.dev/api/matches`,
+    Key = your `RESTV_KEY` → *Save server*. Then open the *Matches* tab.
 
-9. **In Restv:** Settings → Matches server → enter `https://restv.k3be.dev/api/matches` and the key.
+After changing `.env` on the server, run `php artisan config:cache` again.
 
-## If something looks wrong
+## Troubleshooting
 
-- **0 matches:** LiveSoccerTV changed its page or blocked the server. `--dump` saved the page to
-  `storage/app/matches/raw-<date>.html`; open it. If it's a "checking your browser" page, the host's IP is
-  being blocked; try again later or run the command from another machine and upload the JSON.
-- **Wrong country's channels** (e.g. US channels instead of beIN MENA): LiveSoccerTV picks the country
-  from the server's IP. Choose your country on livesoccertv.com in your browser, copy that site's cookies
-  into `RESTV_LSTV_COOKIES`, run `php artisan config:cache`, and fetch again.
+- **0 matches:** LiveSoccerTV changed its page or blocked the server. `--dump` saves the raw page to
+  `storage/app/private/matches/raw-<date>.html`. If it's a "checking your browser" page, the server's IP is
+  blocked: run the fetch on your Mac and upload the `.json` files to the same folder on the server.
+  Otherwise send the file's first part to Claude to adjust the parser.
+- **Wrong country's channels** (US/UK instead of beIN MENA): LiveSoccerTV picks the country from the
+  server's IP. Choose your country on livesoccertv.com in your browser, copy that site's cookies
+  (browser dev tools → Application → Cookies) into `RESTV_LSTV_COOKIES="name=value; name2=value2"`,
+  then `php artisan config:cache` and fetch again.
 - **Times off by hours:** set `RESTV_SOURCE_TIMEZONE` to the timezone the site shows times in.
+- **401 in the app:** the key in Restv doesn't match `RESTV_KEY`.
+- **500 error:** check `storage/logs/laravel.log`.
 
-Be considerate: this fetches a couple of pages a day for personal use. Don't raise the frequency.
+This fetches two pages twice a day for personal use. Please don't raise the frequency.

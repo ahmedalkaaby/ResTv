@@ -30,7 +30,7 @@ class FetchMatches extends Command
                 $html = $lstv->download($date);
                 if ($this->option('dump')) {
                     Storage::put("matches/raw-{$date}.html", $html);
-                    $this->line("Saved raw HTML to storage/app/matches/raw-{$date}.html");
+                    $this->line("Saved raw HTML to storage/app/private/matches/raw-{$date}.html");
                 }
                 $matches = $lstv->parse($html, $date);
 
