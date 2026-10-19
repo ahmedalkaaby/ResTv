@@ -94,7 +94,8 @@ fun MatchesScreen(
     LaunchedEffect(dayOffset, reload) {
         val date = LocalDate.now().plusDays(dayOffset.toLong()).toString()
         fun ready(r: dev.k3be.restv.data.MatchesRepo.Result, note: String): Load {
-            val sorted = r.matches.filter { it.broadcasters.isNotEmpty() || it.url != null }.sortedWith(
+            // Only your leagues: Premier League, LaLiga & Real Madrid, Champions League, Bundesliga, Serie A, Ligue 1, Saudi, Iraqi, Süper Lig.
+            val sorted = r.matches.filter { (it.broadcasters.isNotEmpty() || it.url != null) && app.matches.priority(it) < 99 }.sortedWith(
                 compareBy<Match>({ app.matches.priority(it) }, { it.competition.orEmpty() }, { it.kickoff ?: Long.MAX_VALUE })
             )
             return Load.Ready(sorted, note)
@@ -152,7 +153,7 @@ fun MatchesScreen(
                 is Load.Error -> Txt(l.message, T.body, color = C.danger, modifier = Modifier.padding(top = S.s4), maxLines = 4)
                 is Load.Ready -> {
                     Txt(l.note, T.caption, color = C.inkFaint, modifier = Modifier.padding(top = S.s2))
-                    if (l.matches.isEmpty()) Txt("No televised matches found for this day.", T.body, color = C.inkMuted, modifier = Modifier.padding(top = S.s4))
+                    if (l.matches.isEmpty()) Txt("None of your leagues play on this day.", T.body, color = C.inkMuted, modifier = Modifier.padding(top = S.s4))
                     val entries = remember(l) {
                         buildList {
                             var last: String? = null

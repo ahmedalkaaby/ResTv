@@ -138,6 +138,17 @@ fun SettingsScreen(session: Session, sync: SyncState, onSync: () -> Unit, onNavi
             }
 
             Card {
+                SectionLabel("Arabic subtitles · SubDL")
+                var subKey by remember { mutableStateOf(app.prefs.subdlKey() ?: "") }
+                var savedSub by remember { mutableStateOf(false) }
+                Txt("Free key: sign up at subdl.com, then open subdl.com/panel/api and create one. Movies and episodes then get Arabic subtitles automatically; ▲ in the player picks another or fixes the timing.", T.body, color = C.inkMuted, maxLines = 4)
+                Row(horizontalArrangement = Arrangement.spacedBy(S.s2), verticalAlignment = Alignment.Bottom) {
+                    Column(Modifier.width(360.dp)) { TvTextField("SubDL API key", subKey, { subKey = it; savedSub = false }) }
+                    TvButton(if (savedSub) "Saved" else "Save key") { app.prefs.setSubdlKey(subKey); savedSub = true }
+                }
+            }
+
+            Card {
                 SectionLabel("Commentary audio")
                 val sourceCount = remember { app.audioSources.list().size }
                 var token by remember { mutableStateOf(app.prefs.audioToken() ?: app.audioSources.bundledToken) }

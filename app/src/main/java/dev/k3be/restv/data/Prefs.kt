@@ -22,6 +22,23 @@ class Prefs(context: Context) {
     fun vodParser(): Int = sp.getInt("vodParser", 0)
     fun setVodParser(v: Int) { sp.edit().putInt("vodParser", v).apply() }
 
+    /** SubDL API key for Arabic subtitles. */
+    fun subdlKey(): String? = sp.getString("subdlKey", null)?.trim()?.takeIf { it.isNotEmpty() }
+    fun setSubdlKey(k: String) { sp.edit().putString("subdlKey", k.trim()).apply() }
+
+    /** Subtitle timing per title (ms; positive shows them later); a series shares one value. */
+    fun subDelay(key: String): Long = sp.getLong("subDelay_$key", 0L)
+    fun setSubDelay(key: String, ms: Long) { sp.edit().putLong("subDelay_$key", ms).apply() }
+
+    /** Intro learned for a series: where it starts and ends (ms). */
+    fun intro(seriesId: Long): Pair<Long, Long>? = sp.getString("intro_$seriesId", null)?.split(',')
+        ?.mapNotNull { it.toLongOrNull() }?.takeIf { it.size == 2 }?.let { it[0] to it[1] }
+    fun setIntro(seriesId: Long, start: Long, end: Long) { sp.edit().putString("intro_$seriesId", "$start,$end").apply() }
+
+    /** How long a series' end credits run (ms), learned from when you move on. */
+    fun credits(seriesId: Long): Long = sp.getLong("credits_$seriesId", 40_000L)
+    fun setCredits(seriesId: Long, ms: Long) { sp.edit().putLong("credits_$seriesId", ms.coerceIn(10_000L, 8 * 60_000L)).apply() }
+
     fun audioToken(): String? = sp.getString("audioToken", null)?.takeIf { it.isNotBlank() }
 
     fun setAudioToken(token: String) {

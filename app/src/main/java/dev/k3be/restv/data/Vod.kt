@@ -25,6 +25,7 @@ data class MovieInfo(
     val backdrop: String?,
     val poster: String?,
     val ext: String?,
+    val tmdbId: String? = null,
 )
 
 data class Episode(
@@ -50,6 +51,7 @@ data class SeriesInfo(
     val backdrop: String?,
     val poster: String?,
     val seasons: List<Season>,
+    val tmdbId: String? = null,
 )
 
 /** Details from the provider, IMDb lists matched to the catalogue. */
@@ -80,6 +82,7 @@ class VodRepo(
             backdrop = image(info["backdrop_path"]),
             poster = info.str("movie_image") ?: info.str("cover_big"),
             ext = data?.str("container_extension"),
+            tmdbId = info.str("tmdb_id") ?: info.str("tmdb"),
         )
         synchronized(movieCache) { movieCache[id] = m }
         return m
@@ -130,6 +133,7 @@ class VodRepo(
             backdrop = image(info["backdrop_path"]),
             poster = info.str("cover"),
             seasons = seasons,
+            tmdbId = info.str("tmdb") ?: info.str("tmdb_id"),
         )
         synchronized(seriesCache) { seriesCache[id] = s }
         return s

@@ -79,5 +79,6 @@ class RestvApp : Application(), coil.ImageLoaderFactory {
     val audioSources: AudioSources by lazy { AudioSources(this, prefs) }
     val imdb: ImdbCharts by lazy { ImdbCharts(http, json, filesDir) }
     val vod: VodRepo by lazy { VodRepo(db, xtream, imdb) }
+    val subdl: dev.k3be.restv.data.SubDl by lazy { dev.k3be.restv.data.SubDl(http, json, cacheDir) }
     val matches: MatchesRepo by lazy { MatchesRepo(http, json, db, prefs, filesDir) }
 }

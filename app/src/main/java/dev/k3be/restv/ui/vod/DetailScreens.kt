@@ -155,7 +155,7 @@ fun MovieDetailScreen(
                     }
                 }
                 if (versions.size > 1) {
-                    Txt("VERSIONS", T.section, modifier = Modifier.padding(top = 6.dp))
+                    Txt("ALSO AVAILABLE AS", T.section, modifier = Modifier.padding(top = 6.dp))
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(S.s2)) {
                         items(versions.size) { k ->
                             val v = versions[k]
