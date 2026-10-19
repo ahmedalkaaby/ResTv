@@ -50,7 +50,7 @@ private val timeFmt = SimpleDateFormat("HH:mm", Locale.getDefault())
 
 private sealed interface Load {
     data object Loading : Load
-    data class Ready(val matches: List<Match>) : Load
+    data class Ready(val matches: List<Match>, val note: String) : Load
     data class Error(val message: String) : Load
 }
 
@@ -65,6 +65,7 @@ fun MatchesScreen(
     val live = rememberLiveViewModel(session)
     val favs by live.favoriteIds.collectAsStateWithLifecycle()
     var dayOffset by remember { mutableIntStateOf(0) }
+    var reload by remember { mutableIntStateOf(0) }
     var load by remember { mutableStateOf<Load>(Load.Loading) }
     var selected by remember { mutableStateOf<Match?>(null) }
     var rows by remember { mutableStateOf<List<ChannelRow>>(emptyList()) }
@@ -72,11 +73,12 @@ fun MatchesScreen(
     val firstMatch = remember { FocusRequester() }
     val gridState = rememberLazyGridState()
 
-    LaunchedEffect(dayOffset) {
+    LaunchedEffect(dayOffset, reload) {
         load = Load.Loading
         load = try {
             val date = LocalDate.now().plusDays(dayOffset.toLong()).toString()
-            Load.Ready(app.matches.fetch(date).filter { it.broadcasters.isNotEmpty() })
+            val r = app.matches.fetch(date, force = reload > 0)
+            Load.Ready(r.matches.filter { it.broadcasters.isNotEmpty() }, "From ${r.source} · updated ${timeFmt.format(Date(r.fetchedAt))}")
         } catch (e: Exception) {
             Load.Error(e.message ?: "Couldn't load matches")
         }
@@ -98,11 +100,13 @@ fun MatchesScreen(
                 Txt("Matches", T.titleLg, modifier = Modifier.padding(end = 8.dp))
                 TvButton("Today", primary = dayOffset == 0) { dayOffset = 0 }
                 TvButton("Tomorrow", primary = dayOffset == 1) { dayOffset = 1 }
+                TvButton("↻") { reload++ }
             }
             when (val l = load) {
                 Load.Loading -> Txt("Loading…", T.body, color = C.inkMuted, modifier = Modifier.padding(top = S.s4))
                 is Load.Error -> Txt(l.message, T.body, color = C.danger, modifier = Modifier.padding(top = S.s4), maxLines = 4)
                 is Load.Ready -> {
+                    Txt(l.note, T.caption, color = C.inkFaint, modifier = Modifier.padding(top = S.s2))
                     if (l.matches.isEmpty()) Txt("No televised matches found for this day.", T.body, color = C.inkMuted, modifier = Modifier.padding(top = S.s4))
                     LazyColumn(Modifier.padding(top = S.s3), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         items(l.matches.size, key = { l.matches[it].id }) { i ->

@@ -42,5 +42,5 @@ class RestvApp : Application() {
     val prefs: Prefs by lazy { Prefs(this) }
     val updater: Updater by lazy { Updater(this, http, json) }
     val audioSources: AudioSources by lazy { AudioSources(this, prefs) }
-    val matches: MatchesRepo by lazy { MatchesRepo(http, json, db, prefs) }
+    val matches: MatchesRepo by lazy { MatchesRepo(http, json, db, prefs, filesDir) }
 }
