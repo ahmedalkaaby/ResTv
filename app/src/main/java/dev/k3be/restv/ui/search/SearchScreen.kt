@@ -71,7 +71,7 @@ fun SearchScreen(
         delay(250) // wait for typing to pause
         val prefix = q.lowercase()
         // 4K first across every category, then FHD, HD; names starting with the query first within a tier.
-        results = groupVariants(app.db.live().search(session.login.id, q)).sortedWith(
+        results = groupVariants(app.db.live().search(session.login.id, q).filterNot { dev.k3be.restv.data.Naming.isSeparator(it.rawName) }).sortedWith(
             compareByDescending<ChannelRow> { it.main.quality }
                 .thenBy { if (it.main.name.lowercase().startsWith(prefix)) 0 else 1 }
                 .thenBy { it.main.name.lowercase() }

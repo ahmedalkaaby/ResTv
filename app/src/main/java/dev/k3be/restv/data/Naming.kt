@@ -39,8 +39,24 @@ object Naming {
         "EN" to "English", "VIP" to "VIP", "PPV" to "Pay per view",
     )
 
-    fun normalize(raw: String): String =
-        buildString(raw.length) { raw.forEach { append(superscripts[it] ?: it) } }
+    /** Icons providers put in place of letters: "beIN SP⚽RTS" → "beIN SPORTS". */
+    private val letterIcons = mapOf(
+        '⚽' to 'O', '⚾' to 'O', '○' to 'O', '◯' to 'O', '⭕' to 'O', '◎' to 'O', '⊙' to 'O',
+    )
+
+    fun normalize(raw: String): String {
+        val mapped = buildString(raw.length) {
+            raw.forEach { append(superscripts[it] ?: letterIcons[it] ?: it) }
+        }
+        // NFKC folds fullwidth, circled and styled letters ("ＳＰＯＲＴＳ", "ⓢⓟⓞⓡⓣⓢ") to plain ones.
+        return java.text.Normalizer.normalize(mapped, java.text.Normalizer.Form.NFKC)
+            .replace("\uFE0F", "") // emoji variation selector left behind by ⚽️
+    }
+
+    /** Provider divider rows such as "##### SPORTS #####" — not real channels. */
+    fun isSeparator(raw: String): Boolean =
+        raw.contains("###") || raw.contains("===") || raw.contains("***") ||
+            raw.count { it.isLetterOrDigit() } < 2
 
     fun split(raw: String): Split {
         val n = normalize(raw).trim()

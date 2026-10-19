@@ -5,6 +5,8 @@ import dev.k3be.restv.data.db.ChannelEntity
 import dev.k3be.restv.data.xtream.str
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -29,6 +31,8 @@ data class Match(
     val home: String,
     val away: String,
     val broadcasters: List<String>,
+    /** LiveSoccerTV match page, for worldwide broadcasters and crests. */
+    val url: String? = null,
 )
 
 /**
@@ -89,6 +93,7 @@ class MatchesRepo(
                         put("home", m.home)
                         put("away", m.away)
                         put("channels", buildJsonArray { m.broadcasters.forEach { add(JsonPrimitive(it)) } })
+                        m.url?.let { put("url", it) }
                     })
                 }
             })
@@ -122,31 +127,99 @@ class MatchesRepo(
                 home = o.str("home") ?: "",
                 away = o.str("away") ?: "",
                 broadcasters = (o["channels"] as? JsonArray)?.mapNotNull { (it as? JsonPrimitive)?.content } ?: emptyList(),
+                url = o.str("url"),
             )
         }
     }
 
-    /**
-     * Finds the user's channels for each broadcaster name ("beIN SPORTS 1 MENA" → "beIN Sports 1 4K", …).
-     * Tries the full name, then drops region words like MENA/Arabia from the end.
-     */
-    suspend fun channelsFor(loginId: Long, broadcasters: List<String>): Pair<List<ChannelEntity>, List<String>> {
+    /** Everything shown for one match: the user's channels from every country, plus crests. */
+    data class Coverage(
+        val channels: List<ChannelEntity>,
+        /** Countries each found channel is broadcast in, by streamId ("Great Britain", "Australia"). */
+        val countries: Map<Long, List<String>>,
+        val missing: List<String>,
+        val homeLogo: String?,
+        val awayLogo: String?,
+        val worldwide: Boolean,
+    )
+
+    suspend fun coverage(loginId: Long, match: Match): Coverage = withContext(Dispatchers.IO) {
+        val detail = match.url?.let { url -> runCatching { detail(match.id, url, match.home, match.away) }.getOrNull() }
+        val pairs = LinkedHashSet<Pair<String, String>>()
+        match.broadcasters.forEach { pairs += "" to it }
+        detail?.coverage?.let { pairs += it }
+
+        val idx = index(loginId)
         val found = LinkedHashMap<Long, ChannelEntity>()
-        val missing = ArrayList<String>()
-        for (b in broadcasters) {
-            val hits = matchOne(loginId, b)
-            if (hits.isEmpty()) missing += b else hits.forEach { found[it.streamId] = it }
+        val countries = HashMap<Long, MutableList<String>>()
+        val missing = LinkedHashSet<String>()
+        val byName = pairs.groupBy({ it.second }, { it.first })
+        for ((name, cs) in byName) {
+            val hits = lookup(idx, name)
+            if (hits.isEmpty()) { missing += name; continue }
+            for (ch in hits) {
+                found[ch.streamId] = ch
+                val list = countries.getOrPut(ch.streamId) { ArrayList() }
+                cs.filter { it.isNotEmpty() && it !in list }.forEach { list += it }
+            }
         }
-        return found.values.toList() to missing
+        Coverage(found.values.toList(), countries, missing.toList(), detail?.homeLogo, detail?.awayLogo, detail != null)
     }
 
-    private suspend fun matchOne(loginId: Long, broadcaster: String): List<ChannelEntity> {
+    private fun lookup(idx: Map<String, List<ChannelEntity>>, broadcaster: String): List<ChannelEntity> {
         val target = core(broadcaster)
         if (target.isEmpty() || streamingOnly.any { target == it || target.startsWith("$it ") }) return emptyList()
-        val words = target.split(' ')
-        // Search the database by the most distinctive word, then compare cleaned names exactly.
-        val probe = words.firstOrNull { it.length >= 3 && it.none(Char::isDigit) } ?: words.first()
-        return db.live().searchAll(loginId, probe).filter { ch -> core(Naming.cleanChannelName(ch.rawName)) == target }
+        return idx[target].orEmpty()
+    }
+
+    // Channel list reduced to core names, rebuilt when the list changes (sync).
+    private val indexLock = Mutex()
+    private var indexKey: Pair<Long, Int>? = null
+    private var indexMap: Map<String, List<ChannelEntity>> = emptyMap()
+
+    private suspend fun index(loginId: Long): Map<String, List<ChannelEntity>> = indexLock.withLock {
+        val key = loginId to db.live().countChannels(loginId)
+        if (key != indexKey) {
+            indexMap = db.live().allChannels(loginId)
+                .filterNot { Naming.isSeparator(it.rawName) }
+                .groupBy { core(Naming.cleanChannelName(it.rawName)) }
+            indexKey = key
+        }
+        indexMap
+    }
+
+    private val details = HashMap<String, Pair<Long, LiveSoccerTv.Detail>>()
+
+    private suspend fun detail(id: String, url: String, home: String, away: String): LiveSoccerTv.Detail {
+        val now = System.currentTimeMillis()
+        synchronized(details) { details[id] }?.let { if (now - it.first < 3 * 3_600_000L) return it.second }
+        val f = File(cacheDir, "matches/detail-$id.json")
+        if (f.exists() && now - f.lastModified() < 3 * 3_600_000L) {
+            runCatching {
+                val o = json.parseToJsonElement(f.readText()).jsonObject
+                val cov = (o["coverage"] as? JsonArray)?.mapNotNull { el ->
+                    val arr = el as? JsonArray ?: return@mapNotNull null
+                    val c = (arr.getOrNull(0) as? JsonPrimitive)?.content ?: ""
+                    val n = (arr.getOrNull(1) as? JsonPrimitive)?.content ?: return@mapNotNull null
+                    c to n
+                }.orEmpty()
+                LiveSoccerTv.Detail(cov, o.str("home_logo"), o.str("away_logo"))
+            }.getOrNull()?.let { d ->
+                synchronized(details) { details[id] = f.lastModified() to d }
+                return d
+            }
+        }
+        val d = lstv.fetchDetail(url, home, away)
+        synchronized(details) { details[id] = now to d }
+        runCatching {
+            f.parentFile?.mkdirs()
+            f.writeText(buildJsonObject {
+                put("coverage", buildJsonArray { d.coverage.forEach { (c, n) -> add(buildJsonArray { add(JsonPrimitive(c)); add(JsonPrimitive(n)) }) } })
+                d.homeLogo?.let { put("home_logo", it) }
+                d.awayLogo?.let { put("away_logo", it) }
+            }.toString())
+        }
+        return d
     }
 
     /**
@@ -161,8 +234,9 @@ class MatchesRepo(
             .joinToString(" ")
 
     private val noise = setOf(
-        "mena", "arabia", "arabic", "ar", "hd", "fhd", "uhd", "4k", "sd", "hevc", "tv", "channel", "live",
+        "mena", "arabia", "arabic", "ar", "uk", "hd", "fhd", "uhd", "4k", "sd", "hevc", "tv", "channel", "live",
         "max", "premium", "global", "international", "middle", "east", "north", "africa",
+        "raw", "backup", "vip", "fps", "50fps", "60fps", "h265", "1080p", "720p", "2160p", "1080", "720", "2160",
     )
 
     /** Streaming services that will never be an IPTV channel in the list. */

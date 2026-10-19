@@ -22,14 +22,29 @@ class LiveSoccerTv(private val http: OkHttpClient) {
 
     class BlockedException(message: String) : IOException(message)
 
+    /** A match page: every country's broadcasters (not just the viewer's) and the team crests. */
+    data class Detail(
+        val coverage: List<Pair<String, String>>,
+        val homeLogo: String?,
+        val awayLogo: String?,
+    )
+
     suspend fun fetchDay(date: LocalDate): List<Match> = withContext(Dispatchers.IO) {
+        parse(get("https://www.livesoccertv.com/schedules/$date/"), date)
+    }
+
+    suspend fun fetchDetail(url: String, home: String, away: String): Detail = withContext(Dispatchers.IO) {
+        parseDetail(get(url), home, away)
+    }
+
+    private fun get(url: String): String {
         val req = Request.Builder()
-            .url("https://www.livesoccertv.com/schedules/$date/")
+            .url(url)
             .header("User-Agent", USER_AGENT)
             .header("Accept", "text/html,application/xhtml+xml")
             .header("Accept-Language", "en-GB,en;q=0.9")
             .build()
-        val html = http.newCall(req).execute().use { resp ->
+        return http.newCall(req).execute().use { resp ->
             val body = resp.body?.string().orEmpty()
             if (resp.code == 403 || body.contains("<title>Just a moment", ignoreCase = true)) {
                 throw BlockedException("LiveSoccerTV asked for a browser check")
@@ -37,8 +52,43 @@ class LiveSoccerTv(private val http: OkHttpClient) {
             if (!resp.isSuccessful) throw IOException("LiveSoccerTV answered ${resp.code}")
             body
         }
-        parse(html, date)
     }
+
+    /**
+     * The "International Coverage" table: rows of country name + channel links. Rows that also link
+     * to other matches (related fixtures) are skipped.
+     */
+    fun parseDetail(html: String, home: String, away: String): Detail {
+        val doc = Jsoup.parse(html, "https://www.livesoccertv.com/")
+        val coverage = LinkedHashSet<Pair<String, String>>()
+        for (tr in doc.select("tr")) {
+            if (tr.selectFirst("a[href*=/match/]") != null) continue
+            val links = tr.select("a[href*=/channels/]")
+            if (links.isEmpty()) continue
+            val firstCell = tr.selectFirst("td, th")
+            val country = firstCell?.takeIf { it.selectFirst("a[href*=/channels/]") == null }?.text()?.let(::clean).orEmpty()
+            for (a in links) {
+                val name = channelName(a.attr("title").ifBlank { a.text() })
+                if (name.isNotEmpty()) coverage += country to name
+            }
+        }
+        val logos = doc.select("img")
+            .map { it.absUrl("src").ifBlank { it.absUrl("data-src") } to it.attr("alt") }
+            .filter { (src, _) -> src.contains("/teams/") && src.contains("/logos/") }
+            .distinctBy { it.first }
+        fun file(src: String) = src.substringAfterLast('/').substringBeforeLast('.')
+        fun logoFor(team: String, fallback: Int): String? {
+            val slug = slug(team)
+            return logos.firstOrNull { (src, alt) -> file(src) == slug || alt.equals(team, ignoreCase = true) }?.first
+                ?: logos.firstOrNull { (src, _) -> slug.isNotEmpty() && file(src).startsWith(slug.substringBefore('-')) }?.first
+                ?: logos.getOrNull(fallback)?.first
+        }
+        return Detail(coverage.toList(), logoFor(home, 0), logoFor(away, 1))
+    }
+
+    private fun slug(s: String): String =
+        java.text.Normalizer.normalize(s, java.text.Normalizer.Form.NFD).replace(Regex("""\p{M}+"""), "")
+            .lowercase().replace(Regex("""[^a-z0-9]+"""), "-").trim('-')
 
     fun parse(html: String, date: LocalDate, zone: ZoneId = ZoneId.systemDefault()): List<Match> {
         val doc = Jsoup.parse(html, "https://www.livesoccertv.com/")
@@ -68,6 +118,7 @@ class LiveSoccerTv(private val http: OkHttpClient) {
                 home = home,
                 away = away,
                 broadcasters = channels.toList(),
+                url = matchLink.absUrl("href").substringBefore('#').ifBlank { null },
             )
         }
         return out.sortedBy { it.kickoff ?: Long.MAX_VALUE }

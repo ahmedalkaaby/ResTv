@@ -281,6 +281,7 @@ fun PlayerScreen(
                     overlayToken++
                 },
                 onLeft = { panel = Panel.Categories },
+                onRight = { panel = Panel.None; overlayToken++ },
                 modifier = Modifier.align(Alignment.CenterStart),
             )
         }
@@ -345,6 +346,7 @@ private fun ChannelListPanel(
     playingStreamId: Long?,
     onPick: (Int) -> Unit,
     onLeft: () -> Unit,
+    onRight: () -> Unit,
     modifier: Modifier,
 ) {
     val playingIndex = rows.indexOfFirst { it.streamId == playingStreamId }.coerceAtLeast(0)
@@ -360,7 +362,7 @@ private fun ChannelListPanel(
         verticalArrangement = Arrangement.spacedBy(S.s2),
     ) {
         Txt(title, T.title, modifier = Modifier.padding(start = 12.dp))
-        Txt("OK switch · ◀ categories · BACK close", T.caption, color = C.inkFaint, modifier = Modifier.padding(start = 12.dp, bottom = 4.dp))
+        Txt("OK switch · ◀ categories · ▶ close", T.caption, color = C.inkFaint, modifier = Modifier.padding(start = 12.dp, bottom = 4.dp))
         LazyColumn(state = listState, verticalArrangement = Arrangement.spacedBy(4.dp)) {
             items(rows.size, key = { rows[it].streamId }) { i ->
                 val row = rows[i]
@@ -368,7 +370,12 @@ private fun ChannelListPanel(
                 FocusRow(
                     modifier = (if (i == playingIndex) Modifier.focusRequester(current) else Modifier)
                         .onPreviewKeyEvent { ev ->
-                            if (ev.type == KeyEventType.KeyDown && ev.key == Key.DirectionLeft) { onLeft(); true } else false
+                            when {
+                                ev.type != KeyEventType.KeyDown -> false
+                                ev.key == Key.DirectionLeft -> { onLeft(); true }
+                                ev.key == Key.DirectionRight -> { onRight(); true }
+                                else -> false
+                            }
                         },
                     selected = isPlaying,
                     height = 52.dp,

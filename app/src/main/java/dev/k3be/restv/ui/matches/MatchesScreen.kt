@@ -27,6 +27,11 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.k3be.restv.RestvApp
 import dev.k3be.restv.Session
 import dev.k3be.restv.data.Match
+import dev.k3be.restv.data.MatchesRepo
+import coil.compose.AsyncImage
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.foundation.layout.size
+import kotlinx.coroutines.delay
 import dev.k3be.restv.ui.components.Badge
 import dev.k3be.restv.ui.components.BadgeKind
 import dev.k3be.restv.ui.components.FocusRow
@@ -69,7 +74,8 @@ fun MatchesScreen(
     var load by remember { mutableStateOf<Load>(Load.Loading) }
     var selected by remember { mutableStateOf<Match?>(null) }
     var rows by remember { mutableStateOf<List<ChannelRow>>(emptyList()) }
-    var missing by remember { mutableStateOf<List<String>>(emptyList()) }
+    var cov by remember { mutableStateOf<MatchesRepo.Coverage?>(null) }
+    var looking by remember { mutableStateOf(false) }
     val firstMatch = remember { FocusRequester() }
     val gridState = rememberLazyGridState()
 
@@ -86,11 +92,16 @@ fun MatchesScreen(
     LaunchedEffect(load) { if (load is Load.Ready) runCatching { firstMatch.requestFocus() } }
     LaunchedEffect(selected) {
         val m = selected ?: return@LaunchedEffect
-        val (channels, notFound) = app.matches.channelsFor(session.login.id, m.broadcasters)
-        rows = groupVariants(channels).sortedWith(
+        cov = null
+        rows = emptyList()
+        looking = true
+        delay(350) // scrolling past matches shouldn't load every page
+        val c = app.matches.coverage(session.login.id, m)
+        rows = groupVariants(c.channels).sortedWith(
             compareByDescending<ChannelRow> { it.main.quality }.thenBy { it.main.name.lowercase() }
         )
-        missing = notFound
+        cov = c
+        looking = false
     }
 
     Row(Modifier.fillMaxSize()) {
@@ -123,16 +134,27 @@ fun MatchesScreen(
                 Txt("Pick a match to see your channels for it.", T.body, color = C.inkMuted, modifier = Modifier.padding(top = 44.dp))
                 return@Column
             }
-            Txt("${m.home} v ${m.away}", T.title)
+            val c = cov
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(S.s2)) {
+                Crest(c?.homeLogo)
+                Txt("${m.home} v ${m.away}", T.title)
+                Crest(c?.awayLogo)
+            }
             Txt(
                 listOfNotNull(m.competition, m.kickoff?.let { timeFmt.format(Date(it)) }).joinToString(" · ") +
-                    " · ${rows.size} of your channels · 4K first",
+                    if (c != null) " · ${rows.size} of your channels · 4K first" else "",
                 T.caption, color = C.inkMuted,
             )
-            if (missing.isNotEmpty()) {
-                Txt("Not in your subscription: ${missing.joinToString(", ")}", T.caption, color = C.inkFaint, maxLines = 2)
+            if (c != null) {
+                val countries = c.countries.values.flatten().groupingBy { it }.eachCount().entries
+                    .sortedByDescending { it.value }.map { it.key }
+                if (countries.isNotEmpty()) Txt("From ${countries.take(8).joinToString(", ")}", T.caption, color = C.inkFaint, maxLines = 1)
+                if (!c.worldwide) Txt("Couldn't load worldwide channels, showing your region only.", T.caption, color = C.inkFaint)
+                if (c.missing.isNotEmpty()) Txt("${c.missing.size} other broadcasters aren't in your list", T.caption, color = C.inkFaint)
             }
-            if (rows.isEmpty()) {
+            if (looking) {
+                Txt("Finding channels…", T.body, color = C.inkMuted, modifier = Modifier.padding(top = S.s4))
+            } else if (rows.isEmpty()) {
                 Txt("None of this match's channels were found in your channel list.", T.body, color = C.inkMuted, modifier = Modifier.padding(top = S.s4), maxLines = 3)
             } else {
                 ChannelGrid(
@@ -152,6 +174,12 @@ fun MatchesScreen(
             }
         }
     }
+}
+
+@Composable
+private fun Crest(url: String?) {
+    if (url == null) return
+    AsyncImage(model = url, contentDescription = null, contentScale = ContentScale.Fit, modifier = Modifier.size(36.dp))
 }
 
 @Composable

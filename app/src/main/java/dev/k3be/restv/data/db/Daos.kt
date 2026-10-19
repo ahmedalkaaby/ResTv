@@ -90,6 +90,9 @@ interface LiveDao {
     @Query("SELECT * FROM live_category WHERE loginId = :loginId")
     suspend fun categories(loginId: Long): List<LiveCategoryEntity>
 
+    @Query("SELECT * FROM channel WHERE loginId = :loginId")
+    suspend fun allChannels(loginId: Long): List<ChannelEntity>
+
     @Query("SELECT COUNT(*) FROM channel WHERE loginId = :loginId")
     suspend fun countChannels(loginId: Long): Int
 }
