@@ -71,30 +71,31 @@ class MatchesRepo(
     }
 
     private suspend fun matchOne(loginId: Long, broadcaster: String): List<ChannelEntity> {
-        for (candidate in candidates(broadcaster)) {
-            val key = norm(candidate)
-            if (key.length < 3) continue
-            val hits = db.live().search(loginId, candidate).filter { ch ->
-                val n = norm(Naming.cleanChannelName(ch.rawName))
-                // "bein sports 1" must not match "bein sports 10".
-                n.startsWith(key) && n.getOrNull(key.length)?.isDigit() != true ||
-                    norm(ch.rawName).contains(key) && !norm(ch.rawName).substringAfter(key).take(1).any { it.isDigit() }
-            }
-            if (hits.isNotEmpty()) return hits
-        }
-        return emptyList()
+        val target = core(broadcaster)
+        if (target.isEmpty() || streamingOnly.any { target == it || target.startsWith("$it ") }) return emptyList()
+        val words = target.split(' ')
+        // Search the database by the most distinctive word, then compare cleaned names exactly.
+        val probe = words.firstOrNull { it.length >= 3 && it.none(Char::isDigit) } ?: words.first()
+        return db.live().searchAll(loginId, probe).filter { ch -> core(Naming.cleanChannelName(ch.rawName)) == target }
     }
 
-    private fun candidates(name: String): List<String> {
-        val dropWords = setOf("mena", "arabia", "arabic", "ar", "hd", "english", "french", "francais", "uk", "usa", "us", "tv", "channel")
-        val words = name.split(Regex("\\s+")).filter { it.isNotBlank() }.toMutableList()
-        val out = mutableListOf(name)
-        while (words.size > 1 && words.last().lowercase() in dropWords) {
-            words.removeAt(words.lastIndex)
-            out += words.joinToString(" ")
-        }
-        return out.distinct()
-    }
+    /**
+     * Reduces a channel name to what identifies it: "beIN Sports Arabia 5 HD" and "beIN SPORTS 5 4K"
+     * both become "bein sports 5". Region and quality words are dropped wherever they appear.
+     */
+    private fun core(name: String): String =
+        Naming.normalize(name).lowercase()
+            .replace(Regex("""\(.*?\)"""), " ")
+            .split(Regex("""[^\p{L}\p{N}]+"""))
+            .filter { it.isNotBlank() && it !in noise }
+            .joinToString(" ")
 
-    private fun norm(s: String): String = Naming.normalize(s).lowercase().filter { it.isLetterOrDigit() }
+    private val noise = setOf(
+        "mena", "arabia", "arabic", "ar", "hd", "fhd", "uhd", "4k", "sd", "hevc", "tv", "channel", "live",
+        "max", "premium", "global", "international", "middle", "east", "north", "africa",
+    )
+
+    /** Streaming services that will never be an IPTV channel in the list. */
+    private val streamingOnly = listOf("tod", "dazn", "bein sports connect", "shahid", "fubo", "peacock", "paramount", "espn plus")
+
 }

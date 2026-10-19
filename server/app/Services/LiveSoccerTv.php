@@ -80,7 +80,7 @@ class LiveSoccerTv
             $channels = [];
             foreach ($xp->query('.//a[contains(@href, "/channels/")]', $tr) as $a) {
                 /** @var DOMElement $a */
-                $name = $this->clean($a->getAttribute('title') ?: $a->textContent);
+                $name = $this->channelName($a->getAttribute('title') ?: $a->textContent);
                 if ($name !== '' && ! in_array($name, $channels, true)) {
                     $channels[] = $name;
                 }
@@ -134,6 +134,15 @@ class LiveSoccerTv
         }
 
         return null;
+    }
+
+    /** "beIN Sports English 2 (live stream available)" → "beIN Sports English 2"; drops country lists too. */
+    private function channelName(string $s): string
+    {
+        $s = preg_replace('/\s*\([^)]*\)?\s*$/u', '', $this->clean($s)); // trailing "(...)" even if cut off
+        $s = preg_replace('/\s*\([^)]*\)/u', '', $s);
+
+        return trim($s);
     }
 
     private function clean(string $s): string
