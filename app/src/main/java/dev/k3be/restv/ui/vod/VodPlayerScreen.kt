@@ -179,6 +179,8 @@ fun VodPlayerScreen(
     val delayKey = if (isEpisode) "s${item.seriesId}" else "m${item.id}"
     var subDelay by remember(delayKey) { mutableLongStateOf(app.prefs.subDelay(delayKey)) }
     var cueText by remember { mutableStateOf<String?>(null) }
+    var subSize by remember { mutableIntStateOf(app.prefs.subSize()) }
+    var subBox by remember { mutableStateOf(app.prefs.subBox()) }
 
     // ---- Versions, intro, credits
     var intro by remember(item.seriesId) { mutableStateOf(if (isEpisode) app.prefs.intro(item.seriesId) else null) }
@@ -355,6 +357,8 @@ fun VodPlayerScreen(
     val focus = remember { FocusRequester() }
     LaunchedEffect(panelOpen) { if (!panelOpen) runCatching { focus.requestFocus() } }
 
+    var lastBack by remember { mutableLongStateOf(0L) }
+    var exitHint by remember { mutableStateOf(false) }
     BackHandler {
         when {
             panelOpen -> panelOpen = false
@@ -364,9 +368,13 @@ fun VodPlayerScreen(
                 nextDismissed = true
                 if (isEpisode && duration > 0) app.prefs.setCredits(item.seriesId, (duration - position) - 10_000)
             }
-            else -> onExit()
+            // First Back clears the info bar; leaving takes two presses, like live TV.
+            overlay && playing -> overlay = false
+            System.currentTimeMillis() - lastBack < dev.k3be.restv.BACK_CONFIRM_MS -> onExit()
+            else -> { lastBack = System.currentTimeMillis(); exitHint = true }
         }
     }
+    LaunchedEffect(exitHint) { if (exitHint) { delay(dev.k3be.restv.BACK_CONFIRM_MS); exitHint = false } }
 
     fun seek(deltaMs: Long) {
         val now = player.currentPosition
@@ -440,7 +448,15 @@ fun VodPlayerScreen(
                     }
                 }
             },
-            update = { it.resizeMode = fit.mode },
+            update = {
+                it.resizeMode = fit.mode
+                // Subtitles from the file follow the same size and background choice.
+                it.subtitleView?.setFractionalTextSize(listOf(0.045f, 0.058f, 0.072f)[subSize])
+                it.subtitleView?.setStyle(CaptionStyleCompat(
+                    android.graphics.Color.WHITE, if (subBox) 0x99000000.toInt() else android.graphics.Color.TRANSPARENT,
+                    android.graphics.Color.TRANSPARENT, CaptionStyleCompat.EDGE_TYPE_OUTLINE, android.graphics.Color.BLACK, null,
+                ))
+            },
             modifier = Modifier.fillMaxSize(),
         )
 
@@ -449,13 +465,13 @@ fun VodPlayerScreen(
             Txt(
                 t,
                 T.titleLg.copy(
-                    fontSize = 26.sp, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center, color = Color.White,
+                    fontSize = listOf(21, 26, 32)[subSize].sp, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center, color = Color.White,
                     shadow = Shadow(Color.Black, blurRadius = 6f),
                 ),
                 maxLines = 3,
                 modifier = Modifier.align(Alignment.BottomCenter)
                     .padding(start = 80.dp, end = 80.dp, bottom = if (overlay || !playing) 130.dp else 36.dp)
-                    .background(Color.Black.copy(alpha = 0.45f), RoundedCornerShape(6.dp))
+                    .background(Color.Black.copy(alpha = if (subBox) 0.5f else 0f), RoundedCornerShape(6.dp))
                     .padding(horizontal = 12.dp, vertical = 4.dp),
             )
         }
@@ -541,12 +557,18 @@ fun VodPlayerScreen(
                 subStatus?.let { add(PanelRow(it, note = true)) }
             }
             val sign = if (subDelay > 0) "+" else ""
-            val timingRows = if (!extOn) emptyList() else listOf(
-                PanelRow("Now ${sign}${"%.2f".format(subDelay / 1000f)} s", note = true),
-                PanelRow("◀  Show earlier", onClick = { subDelay -= 250; app.prefs.setSubDelay(delayKey, subDelay) }, keepOpen = true),
-                PanelRow("▶  Show later", onClick = { subDelay += 250; app.prefs.setSubDelay(delayKey, subDelay) }, keepOpen = true),
-                PanelRow("Reset", onClick = { subDelay = 0; app.prefs.setSubDelay(delayKey, 0) }, keepOpen = true),
-            )
+            val timingRows = buildList {
+                if (extOn) {
+                    add(PanelRow("Timing ${sign}${"%.2f".format(subDelay / 1000f)} s", note = true))
+                    add(PanelRow("◀  Show earlier", onClick = { subDelay -= 250; app.prefs.setSubDelay(delayKey, subDelay) }, keepOpen = true))
+                    add(PanelRow("▶  Show later", onClick = { subDelay += 250; app.prefs.setSubDelay(delayKey, subDelay) }, keepOpen = true))
+                    add(PanelRow("Reset timing", onClick = { subDelay = 0; app.prefs.setSubDelay(delayKey, 0) }, keepOpen = true))
+                } else {
+                    add(PanelRow("Timing works on the Arabic (SubDL) subtitles; pick one on the left.", note = true))
+                }
+                add(PanelRow("Size: ${listOf("Small", "Medium", "Large")[subSize]}", onClick = { subSize = (subSize + 1) % 3; app.prefs.setSubSize(subSize) }, keepOpen = true))
+                add(PanelRow("Background: ${if (subBox) "On" else "Off"}", onClick = { subBox = !subBox; app.prefs.setSubBox(subBox) }, keepOpen = true))
+            }
             val moreRows = buildList {
                 add(PanelRow("Picture: ${fit.label}", onClick = { fit = Fit.entries[(fit.ordinal + 1) % Fit.entries.size] }, keepOpen = true))
                 if (hasNext) add(PanelRow("Next episode ▸", onClick = { panelOpen = false; nextNow() }))
@@ -562,6 +584,7 @@ fun VodPlayerScreen(
         }
 
         notice?.let { Toast(it, Modifier.align(Alignment.TopCenter).padding(top = S.safeY)) }
+        if (exitHint) Toast("Press Back again to stop watching", Modifier.align(Alignment.TopCenter).padding(top = S.safeY + 48.dp))
     }
 }
 
@@ -619,7 +642,7 @@ private fun AvPanel(
     ) {
         PanelColumn("Audio", audio, null, onClose, Modifier.weight(1f))
         PanelColumn("Subtitles", subtitles, start, onClose, Modifier.weight(1.3f))
-        if (timing.isNotEmpty()) PanelColumn("Subtitle timing", timing, null, onClose, Modifier.weight(0.9f))
+        PanelColumn("Subtitle style", timing, null, onClose, Modifier.weight(1f))
         PanelColumn("More", more, null, onClose, Modifier.weight(0.8f))
     }
 }

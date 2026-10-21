@@ -93,6 +93,8 @@ fun HomeScreen(
     val seriesWish by series.wishIds.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
     var toast by remember { mutableStateOf<String?>(null) }
+    var vodMenu by remember { mutableStateOf<Pair<String, VodCard>?>(null) }
+    var liveMenu by remember { mutableStateOf<ChannelRow?>(null) }
     LaunchedEffect(toast) { if (toast != null) { delay(2_500); toast = null } }
 
     // What the hero shows: a movie, a series, or a channel.
@@ -152,14 +154,7 @@ fun HomeScreen(
                                     if (r != null) onPlayVod(r.first, r.second) else onOpen(c)
                                 } else onOpen(c)
                             },
-                            onLongClick = { c ->
-                                if (row.id == "continue") onOpen(c)
-                                else {
-                                    val vm = if (c.kind == "movie") movies else series
-                                    toast = if (c.id in movieWish + seriesWish) "Removed from My List" else "Added to My List"
-                                    vm.toggleWish(c)
-                                }
-                            },
+                            onLongClick = { c -> vodMenu = row.id to c },
                             onSeeAll = null,
                             nextTitle = next,
                         )
@@ -170,11 +165,39 @@ fun HomeScreen(
                             restoreId = if (restored) null else restoreId ?: if (first) row.rows.firstOrNull()?.streamId else null,
                             onFocus = { r -> restored = true; home.lastFocus = "${row.id}|${r.streamId}"; heroKind = "live"; heroChannel = r },
                             onClick = { index -> onPlayLive(row.rows, index) },
+                            onLongClick = { r -> liveMenu = r },
                         )
                     }
             }
         }
         toast?.let { Toast(it, Modifier.align(Alignment.BottomCenter).padding(bottom = S.safeY)) }
+    }
+    vodMenu?.let { (rowId, c) ->
+        val vm = if (c.kind == "movie") movies else series
+        val inList = c.id in movieWish + seriesWish
+        dev.k3be.restv.ui.components.ActionMenu(
+            title = c.title,
+            actions = buildList {
+                add("Open details" to { onOpen(c) })
+                add((if (inList) "Remove from My List" else "Add to My List") to {
+                    toast = if (inList) "Removed from My List" else "Added to My List"
+                    vm.toggleWish(c)
+                })
+                if (rowId == "continue") add("Remove from Continue watching" to { vm.forget(c); toast = "Removed from Continue watching" })
+            },
+            onClose = { vodMenu = null },
+        )
+    }
+    liveMenu?.let { r ->
+        val app = androidx.compose.ui.platform.LocalContext.current.applicationContext as dev.k3be.restv.RestvApp
+        dev.k3be.restv.ui.components.ActionMenu(
+            title = r.main.name,
+            actions = listOf(
+                "Watch" to { val i = live.indexOf(r); if (i >= 0) onPlayLive(live, i) },
+                "Remove from recently watched" to { app.prefs.removeRecent(session.login.id, r.streamId); toast = "Removed from recently watched" },
+            ),
+            onClose = { liveMenu = null },
+        )
     }
 }
 
@@ -188,7 +211,7 @@ private fun HomeBackdrop(kind: String, movies: dev.k3be.restv.ui.vod.VodViewMode
         else -> null
     }
     var shown by remember { mutableStateOf<String?>(null) }
-    LaunchedEffect(target) { delay(250); shown = target }
+    LaunchedEffect(target) { delay(150); shown = target }
     HeroBackdrop(shown)
 }
 
@@ -222,6 +245,7 @@ private fun LiveRail(
     restoreId: Long?,
     onFocus: (ChannelRow) -> Unit,
     onClick: (Int) -> Unit,
+    onLongClick: (ChannelRow) -> Unit,
 ) {
     Column(Modifier.fillMaxWidth().height(RAIL_H), verticalArrangement = Arrangement.spacedBy(S.s2)) {
         RailHeader(title, false, nextTitle, S.safeX)
@@ -231,20 +255,20 @@ private fun LiveRail(
         ) {
             items(rows.size, key = { rows[it].streamId }) { i ->
                 val r = rows[i]
-                LiveTile(r, requestFocus = restoreId == r.streamId, onFocus = { onFocus(r) }, onClick = { onClick(i) })
+                LiveTile(r, requestFocus = restoreId == r.streamId, onFocus = { onFocus(r) }, onClick = { onClick(i) }, onLongClick = { onLongClick(r) })
             }
         } }
     }
 }
 
 @Composable
-private fun LiveTile(row: ChannelRow, requestFocus: Boolean, onFocus: () -> Unit, onClick: () -> Unit) {
+private fun LiveTile(row: ChannelRow, requestFocus: Boolean, onFocus: () -> Unit, onClick: () -> Unit, onLongClick: () -> Unit) {
     val source = remember { MutableInteractionSource() }
     val focused by source.collectIsFocusedAsState()
     val fr = remember { FocusRequester() }
     if (focused) LaunchedEffect(Unit) { onFocus() }
     if (requestFocus) LaunchedEffect(Unit) { runCatching { fr.requestFocus() } }
-    val scale by animateFloatAsState(if (focused) 1.07f else 1f, spring(stiffness = Spring.StiffnessMediumLow), label = "tile")
+    val scale by animateFloatAsState(if (focused) 1.07f else 1f, androidx.compose.animation.core.tween(90), label = "tile")
     val shape = RoundedCornerShape(S.radiusMd)
     val ch = row.main
     Box(
@@ -254,7 +278,7 @@ private fun LiveTile(row: ChannelRow, requestFocus: Boolean, onFocus: () -> Unit
             .background(C.bg200)
             .border(2.dp, if (focused) C.focus else Color.Transparent, shape)
             .focusRequester(fr)
-            .remoteClickable(source, onClick),
+            .remoteClickable(source, onClick, onLongClick),
     ) {
         if (!ch.icon.isNullOrBlank()) {
             AsyncImage(ch.icon, null, contentScale = ContentScale.Fit, modifier = Modifier.align(Alignment.Center).width(140.dp).height(80.dp))

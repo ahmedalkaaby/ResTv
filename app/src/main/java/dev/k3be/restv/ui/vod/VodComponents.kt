@@ -99,7 +99,7 @@ fun PosterCard(
     if (requestFocus) LaunchedEffect(Unit) { runCatching { fr.requestFocus() } }
     val scale by animateFloatAsState(
         if (focused) 1.07f else 1f,
-        androidx.compose.animation.core.spring(stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow),
+        tween(90),
         label = "poster",
     )
     val shape = RoundedCornerShape(S.radiusMd)
@@ -240,7 +240,7 @@ fun HeroInfo(hero: Hero?, modifier: Modifier = Modifier) {
 /** Artwork behind the screen for the focused title. Its own composable, so only it redraws on focus. */
 @Composable
 fun HeroBackdrop(url: String?) {
-    androidx.compose.animation.Crossfade(targetState = url, animationSpec = tween(350), label = "backdrop") { u -> Backdrop(u) }
+    androidx.compose.animation.Crossfade(targetState = url, animationSpec = tween(180), label = "backdrop") { u -> Backdrop(u) }
 }
 
 /** Placeholder posters that pulse while a rail loads. */

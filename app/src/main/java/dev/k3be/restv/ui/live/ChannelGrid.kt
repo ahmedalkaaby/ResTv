@@ -190,7 +190,7 @@ fun ChannelCard(
     val source = remember { MutableInteractionSource() }
     val focused by source.collectIsFocusedAsState()
     if (focused) LaunchedEffect(Unit) { onFocus() }
-    val scale by animateFloatAsState(if (focused) 1.06f else 1f, tween(150), label = "card")
+    val scale by animateFloatAsState(if (focused) 1.06f else 1f, tween(90), label = "card")
     val shape = RoundedCornerShape(S.radiusMd)
     Box(
         modifier

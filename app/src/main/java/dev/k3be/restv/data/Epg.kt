@@ -23,6 +23,8 @@ class EpgCache(private val xtream: XtreamClient) {
 
     fun peek(streamId: Long): NowNext? = cache[streamId]?.value
 
+    fun clear() = cache.clear()
+
     suspend fun nowNext(login: LoginEntity, streamId: Long): NowNext {
         val now = System.currentTimeMillis()
         cache[streamId]?.let { e ->

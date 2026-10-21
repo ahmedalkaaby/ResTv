@@ -136,6 +136,15 @@ interface WatchDao {
 }
 
 @Dao
+interface WatchRemoveDao {
+    @Query("DELETE FROM watch WHERE accountId = :accountId AND loginId = :loginId AND kind = 'movie' AND itemId = :movieId")
+    suspend fun removeMovie(accountId: Long, loginId: Long, movieId: Long)
+
+    @Query("DELETE FROM watch WHERE accountId = :accountId AND loginId = :loginId AND kind = 'episode' AND seriesId = :seriesId")
+    suspend fun removeSeries(accountId: Long, loginId: Long, seriesId: Long)
+}
+
+@Dao
 interface WishDao {
     @Query("SELECT * FROM wish WHERE accountId = :accountId AND loginId = :loginId ORDER BY addedAt DESC")
     fun observe(accountId: Long, loginId: Long): Flow<List<WishEntity>>

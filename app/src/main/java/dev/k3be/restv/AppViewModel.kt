@@ -17,6 +17,9 @@ import kotlinx.coroutines.launch
 /** Bump when VodNaming changes how saved titles should be parsed. */
 const val VOD_PARSER = 2
 
+/** How old the downloaded catalogue may get before it refreshes on its own. */
+const val AUTO_SYNC_MS = 48 * 3_600_000L
+
 data class Session(val account: AccountEntity, val login: LoginEntity)
 
 sealed interface Route {
@@ -85,6 +88,18 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 if (login.lastSyncAt == null) syncNow()
                 // A newer name parser (source tags like "AR SUBS") re-reads the catalogue once, in the background.
                 else if (app.prefs.vodParser() < VOD_PARSER && app.db.vod().countMovies(login.id) + app.db.vod().countSeries(login.id) > 0) syncVodNow()
+            }
+        }
+        // Channels, movies and series refresh themselves every 48 hours: checked at start and hourly while open.
+        viewModelScope.launch {
+            while (true) {
+                kotlinx.coroutines.delay(60_000)
+                val login = _session.value?.login
+                val last = login?.lastSyncAt
+                if (login != null && last != null && System.currentTimeMillis() - last > AUTO_SYNC_MS && _sync.value !is SyncState.Running) {
+                    runSync(login)
+                }
+                kotlinx.coroutines.delay(60 * 60_000L)
             }
         }
         viewModelScope.launch {
@@ -166,6 +181,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         try {
             _sync.value = SyncState.Running("Starting")
             app.sync.syncLive(login) { msg -> _sync.value = SyncState.Running(msg) }
+            app.epg.clear()
             app.sync.syncVod(login) { msg, f -> _sync.value = SyncState.Running(msg, f) }
             app.prefs.setVodParser(VOD_PARSER)
             _sync.value = SyncState.Idle

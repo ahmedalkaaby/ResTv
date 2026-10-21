@@ -78,7 +78,7 @@ fun TopBar(active: SidebarItem, onSelect: (SidebarItem) -> Unit, autoHide: Boole
     DisposableEffect(Unit) { onDispose { bar.hasFocus = false } }
     // On artwork screens the bar fades away while you browse and comes back when you go up to it.
     val alpha by androidx.compose.animation.core.animateFloatAsState(
-        if (!autoHide || bar.hasFocus) 1f else 0f, androidx.compose.animation.core.tween(220), label = "bar",
+        if (!autoHide || bar.hasFocus) 1f else 0f, androidx.compose.animation.core.tween(120), label = "bar",
     )
     Row(
         Modifier.fillMaxWidth().padding(start = S.safeX, end = S.safeX, top = 16.dp)

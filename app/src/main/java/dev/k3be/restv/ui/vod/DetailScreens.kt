@@ -453,7 +453,7 @@ private fun EpisodeCard(
     val source = remember { MutableInteractionSource() }
     val focused by source.collectIsFocusedAsState()
     if (focused) LaunchedEffect(Unit) { onFocus() }
-    val scale by animateFloatAsState(if (focused) 1.06f else 1f, tween(140), label = "ep")
+    val scale by animateFloatAsState(if (focused) 1.06f else 1f, tween(90), label = "ep")
     val shape = RoundedCornerShape(S.radiusMd)
     val finished = watch?.finished == true
     Column(Modifier.width(208.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {

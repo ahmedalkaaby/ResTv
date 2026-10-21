@@ -1,27 +1,21 @@
 package dev.k3be.restv.ui.settings
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalContext
@@ -31,14 +25,15 @@ import dev.k3be.restv.RestvApp
 import dev.k3be.restv.Session
 import dev.k3be.restv.SyncState
 import dev.k3be.restv.data.Prefs
+import dev.k3be.restv.ui.components.FocusRow
 import dev.k3be.restv.ui.components.Icons
-import dev.k3be.restv.ui.components.SectionLabel
 import dev.k3be.restv.ui.components.TvButton
 import dev.k3be.restv.ui.components.Txt
 import dev.k3be.restv.ui.live.NavScaffold
 import dev.k3be.restv.ui.live.SidebarItem
 import dev.k3be.restv.ui.live.rememberLiveViewModel
 import dev.k3be.restv.ui.onboarding.TvTextField
+import dev.k3be.restv.ui.player.displayHdr
 import dev.k3be.restv.ui.theme.C
 import dev.k3be.restv.ui.theme.S
 import dev.k3be.restv.ui.theme.T
@@ -57,20 +52,69 @@ private sealed interface UpdateState {
     data class Error(val message: String) : UpdateState
 }
 
+private enum class Section(val label: String) {
+    Updates("Updates"),
+    Account("Account & library"),
+    Subtitles("Arabic subtitles"),
+    Commentary("Commentary audio"),
+    Player("Player"),
+    Matches("Matches server"),
+}
+
+/** Sections on the left, the chosen one on the right: nothing to scroll through, inputs only on "Change". */
 @Composable
 fun SettingsScreen(session: Session, sync: SyncState, onSync: () -> Unit, onNavigate: (SidebarItem) -> Unit) {
     val app = LocalContext.current.applicationContext as RestvApp
-    val live = rememberLiveViewModel(session)
-    val hidden by live.hiddenCount.collectAsStateWithLifecycle()
-    val agent by app.prefs.agent.collectAsStateWithLifecycle()
-    val scope = rememberCoroutineScope()
-    var update by remember { mutableStateOf<UpdateState>(UpdateState.Idle) }
-    val dateFmt = remember { SimpleDateFormat("d MMM yyyy", Locale.getDefault()) }
-    val timeFmt = remember { SimpleDateFormat("d MMM, HH:mm", Locale.getDefault()) }
+    var section by rememberSaveable { mutableStateOf(Section.Updates) }
     val first = remember { FocusRequester() }
     LaunchedEffect(Unit) { runCatching { first.requestFocus() } }
 
-    fun checkUpdate() {
+    NavScaffold(active = SidebarItem.Settings, onSelect = onNavigate) {
+        Column(Modifier.width(250.dp).fillMaxHeight().padding(top = S.safeY), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Txt("Settings", T.titleLg, modifier = Modifier.padding(start = 12.dp, bottom = S.s3))
+            Section.entries.forEach { s ->
+                FocusRow(
+                    modifier = if (s == Section.Updates) Modifier.focusRequester(first) else Modifier,
+                    selected = s == section,
+                    height = 46.dp,
+                    onFocused = { section = s },
+                    onClick = { section = s },
+                ) { _ -> Txt(s.label, T.label, color = if (s == section) C.ink else C.inkMuted, modifier = Modifier.padding(horizontal = 14.dp)) }
+            }
+        }
+        Column(
+            Modifier.weight(1f).fillMaxHeight().padding(start = S.s8, top = S.safeY + 46.dp, end = S.safeX),
+            verticalArrangement = Arrangement.spacedBy(S.s3),
+        ) {
+            when (section) {
+                Section.Updates -> UpdatesPane(app)
+                Section.Account -> AccountPane(app, session, sync, onSync)
+                Section.Subtitles -> SecretPane(
+                    title = "Arabic subtitles · SubDL",
+                    help = "Movies and episodes get Arabic subtitles automatically. Get a free key: sign up at subdl.com, then subdl.com/panel/api. In the player, ▲ picks another subtitle, its size and timing.",
+                    label = "SubDL API key",
+                    current = app.prefs.subdlKey(),
+                    onSave = { app.prefs.setSubdlKey(it) },
+                )
+                Section.Commentary -> SecretPane(
+                    title = "Commentary audio",
+                    help = "Anis FM playlist · ${app.audioSources.list().size} sources. While watching a match, hold OK to pick one.",
+                    label = "Playlist token",
+                    current = app.prefs.audioToken() ?: app.audioSources.bundledToken,
+                    onSave = { app.prefs.setAudioToken(it) },
+                )
+                Section.Player -> PlayerPane(app)
+                Section.Matches -> MatchesPane(app)
+            }
+        }
+    }
+}
+
+@Composable
+private fun UpdatesPane(app: RestvApp) {
+    val scope = rememberCoroutineScope()
+    var update by remember { mutableStateOf<UpdateState>(UpdateState.Idle) }
+    fun check() {
         scope.launch {
             update = UpdateState.Checking
             update = try {
@@ -80,12 +124,8 @@ fun SettingsScreen(session: Session, sync: SyncState, onSync: () -> Unit, onNavi
             }
         }
     }
-
-    fun installUpdate(release: Updater.Release) {
-        if (app.updater.needsInstallPermission()) {
-            app.updater.openInstallPermissionSettings()
-            return
-        }
+    fun install(release: Updater.Release) {
+        if (app.updater.needsInstallPermission()) { app.updater.openInstallPermissionSettings(); return }
         scope.launch {
             try {
                 val file = app.updater.download(release) { update = UpdateState.Downloading(it) }
@@ -96,119 +136,111 @@ fun SettingsScreen(session: Session, sync: SyncState, onSync: () -> Unit, onNavi
             }
         }
     }
+    Txt("Restv ${app.updater.currentVersionName}", T.display)
+    val (line, color) = when (val u = update) {
+        UpdateState.Idle -> "Updates come from GitHub releases." to C.inkMuted
+        UpdateState.Checking -> "Checking…" to C.inkMuted
+        UpdateState.UpToDate -> "You're on the latest version." to C.success
+        is UpdateState.Available -> "Version ${u.release.name.removePrefix("v")} is ready to install." to C.accent
+        is UpdateState.Downloading -> "Downloading · ${(u.fraction * 100).toInt()}%" to C.accent
+        is UpdateState.Error -> u.message to C.danger
+    }
+    Txt(line, T.bodyLg, color = color)
+    Row(horizontalArrangement = Arrangement.spacedBy(S.s2)) {
+        when (val u = update) {
+            is UpdateState.Available -> TvButton("Update now", primary = true, icon = Icons.download) { install(u.release) }
+            is UpdateState.Downloading -> TvButton("Downloading…", enabled = false) {}
+            else -> TvButton("Check for updates", primary = true, onClick = ::check)
+        }
+    }
+    if (app.updater.needsInstallPermission() && update is UpdateState.Available) {
+        Txt("First time only: allow Restv to install apps, then press Update again.", T.caption, color = C.inkFaint, maxLines = 2)
+    }
+}
 
-    NavScaffold(active = SidebarItem.Settings, onSelect = onNavigate) {
-        Column(
-            Modifier.fillMaxHeight().verticalScroll(rememberScrollState()).padding(start = 24.dp, top = S.safeY, end = S.safeX, bottom = S.safeY),
-            verticalArrangement = Arrangement.spacedBy(S.s3),
-        ) {
-            Txt("Settings", T.titleLg)
+@Composable
+private fun AccountPane(app: RestvApp, session: Session, sync: SyncState, onSync: () -> Unit) {
+    val live = rememberLiveViewModel(session)
+    val hidden by live.hiddenCount.collectAsStateWithLifecycle()
+    val dateFmt = remember { SimpleDateFormat("d MMM yyyy", Locale.getDefault()) }
+    val timeFmt = remember { SimpleDateFormat("d MMM, HH:mm", Locale.getDefault()) }
+    val login = session.login
+    Txt(session.account.name, T.titleLg)
+    val expiry = login.expiresAt?.let { "until ${dateFmt.format(Date(it))}" } ?: "no expiry date"
+    Txt("${login.host.removePrefix("http://")} · $expiry · ${login.maxConnections} stream${if (login.maxConnections == 1) "" else "s"}", T.body, color = C.inkMuted)
+    Txt(
+        (login.lastSyncAt?.let { "Channels, movies and series updated ${timeFmt.format(Date(it))}" } ?: "Not synced yet") +
+            " · updates itself every 48 hours",
+        T.body, color = C.inkFaint, maxLines = 2,
+    )
+    Row(horizontalArrangement = Arrangement.spacedBy(S.s2)) {
+        TvButton(
+            text = if (sync is SyncState.Running) sync.message else "Update now",
+            icon = Icons.sync,
+            enabled = sync !is SyncState.Running,
+            onClick = onSync,
+        )
+        if (hidden > 0) TvButton("Show hidden categories ($hidden)", onClick = live::unhideAll)
+    }
+    if (sync is SyncState.Failed) Txt(sync.message, T.caption, color = C.danger, maxLines = 2)
+}
 
-            Card {
-                SectionLabel("Account")
-                Txt(session.account.name, T.title)
-                val login = session.login
-                val expiry = login.expiresAt?.let { "until ${dateFmt.format(Date(it))}" } ?: "no expiry date"
-                Txt("${login.host.removePrefix("http://")} · $expiry · ${login.maxConnections} stream${if (login.maxConnections == 1) "" else "s"}", T.body, color = C.inkMuted)
-                Txt(login.lastSyncAt?.let { "Last synced ${timeFmt.format(Date(it))}" } ?: "Not synced yet", T.caption, color = C.inkFaint)
-                Row(horizontalArrangement = Arrangement.spacedBy(S.s2)) {
-                    TvButton(
-                        text = if (sync is SyncState.Running) sync.message else "Sync now",
-                        icon = Icons.sync,
-                        enabled = sync !is SyncState.Running,
-                        modifier = Modifier.focusRequester(first),
-                        onClick = onSync,
-                    )
-                    if (hidden > 0) TvButton("Show hidden categories ($hidden)", onClick = live::unhideAll)
-                }
-                if (sync is SyncState.Failed) Txt(sync.message, T.caption, color = C.danger, maxLines = 2)
-            }
-
-            Card {
-                SectionLabel("Matches server (optional)")
-                var url by remember { mutableStateOf(app.prefs.matchesUrl() ?: "") }
-                var key by remember { mutableStateOf(app.prefs.matchesKey() ?: "") }
-                var savedServer by remember { mutableStateOf(false) }
-                Txt("Matches load directly on this TV. Your server is only used if that fails.", T.body, color = C.inkMuted, maxLines = 2)
-                Column(Modifier.width(520.dp), verticalArrangement = Arrangement.spacedBy(S.s2)) {
-                    TvTextField("Server URL", url, { url = it; savedServer = false })
-                    TvTextField("Key", key, { key = it; savedServer = false }, password = true)
-                }
-                TvButton(if (savedServer) "Saved" else "Save server") { app.prefs.setMatchesServer(url, key); savedServer = true }
-            }
-
-            Card {
-                SectionLabel("Arabic subtitles · SubDL")
-                var subKey by remember { mutableStateOf(app.prefs.subdlKey() ?: "") }
-                var savedSub by remember { mutableStateOf(false) }
-                Txt("Free key: sign up at subdl.com, then open subdl.com/panel/api and create one. Movies and episodes then get Arabic subtitles automatically; ▲ in the player picks another or fixes the timing.", T.body, color = C.inkMuted, maxLines = 4)
-                Row(horizontalArrangement = Arrangement.spacedBy(S.s2), verticalAlignment = Alignment.Bottom) {
-                    Column(Modifier.width(360.dp)) { TvTextField("SubDL API key", subKey, { subKey = it; savedSub = false }) }
-                    TvButton(if (savedSub) "Saved" else "Save key") { app.prefs.setSubdlKey(subKey); savedSub = true }
-                }
-            }
-
-            Card {
-                SectionLabel("Commentary audio")
-                val sourceCount = remember { app.audioSources.list().size }
-                var token by remember { mutableStateOf(app.prefs.audioToken() ?: app.audioSources.bundledToken) }
-                var saved by remember { mutableStateOf(false) }
-                Txt("Anis FM playlist · $sourceCount sources. While watching, hold OK to pick one.", T.body, color = C.inkMuted, maxLines = 2)
-                Row(horizontalArrangement = Arrangement.spacedBy(S.s2), verticalAlignment = Alignment.Bottom) {
-                    Column(Modifier.width(360.dp)) { TvTextField("Playlist token", token, { token = it; saved = false }) }
-                    TvButton(if (saved) "Saved" else "Save token") { app.prefs.setAudioToken(token); saved = true }
-                }
-            }
-
-            Card {
-                SectionLabel("Player")
-                Txt("Some providers treat unknown players differently. If channels keep dropping, try the VLC identity.", T.body, color = C.inkMuted, maxLines = 2)
-                Row(horizontalArrangement = Arrangement.spacedBy(S.s2)) {
-                    Prefs.Agent.entries.forEach { a ->
-                        TvButton(
-                            text = (if (a == agent) "✓ " else "") + "Identify as ${a.label}",
-                            primary = a == agent,
-                            onClick = { app.prefs.setAgent(a) },
-                        )
-                    }
-                }
-            }
-
-            Card {
-                SectionLabel("App")
-                Txt("Restv ${app.updater.currentVersionName}", T.title)
-                val (line, color) = when (val u = update) {
-                    UpdateState.Idle -> "Updates come from GitHub releases." to C.inkMuted
-                    UpdateState.Checking -> "Checking…" to C.inkMuted
-                    UpdateState.UpToDate -> "You're on the latest version." to C.success
-                    is UpdateState.Available -> "Version ${u.release.name.removePrefix("v")} is ready to install." to C.accent
-                    is UpdateState.Downloading -> "Downloading · ${(u.fraction * 100).toInt()}%" to C.accent
-                    is UpdateState.Error -> u.message to C.danger
-                }
-                Txt(line, T.body, color = color)
-                Row(horizontalArrangement = Arrangement.spacedBy(S.s2)) {
-                    when (val u = update) {
-                        is UpdateState.Available -> TvButton("Update now", primary = true, icon = Icons.download) { installUpdate(u.release) }
-                        is UpdateState.Downloading -> TvButton("Downloading…", enabled = false) {}
-                        else -> TvButton("Check for updates", onClick = ::checkUpdate)
-                    }
-                }
-                if (app.updater.needsInstallPermission() && update is UpdateState.Available) {
-                    Txt("First time only: allow Restv to install apps, then press Update again.", T.caption, color = C.inkFaint, maxLines = 2)
-                }
-            }
+/** A saved value shown as ••••abcd; the text field only appears after "Change". */
+@Composable
+private fun SecretPane(title: String, help: String, label: String, current: String?, onSave: (String) -> Unit) {
+    var editing by remember(title) { mutableStateOf(false) }
+    var value by remember(title) { mutableStateOf(current ?: "") }
+    var saved by remember(title) { mutableStateOf(current) }
+    Txt(title, T.titleLg)
+    Txt(help, T.body, color = C.inkMuted, maxLines = 4)
+    if (!editing) {
+        Txt(saved?.let { "$label:  ••••••${it.takeLast(4)}" } ?: "$label: not set", T.bodyLg, color = if (saved == null) C.inkFaint else C.ink)
+        TvButton(if (saved == null) "Add" else "Change", primary = saved == null) { editing = true }
+    } else {
+        Column(Modifier.width(460.dp)) { TvTextField(label, value, { value = it }) }
+        Row(horizontalArrangement = Arrangement.spacedBy(S.s2), verticalAlignment = Alignment.CenterVertically) {
+            TvButton("Save", primary = true) { onSave(value); saved = value.trim().ifEmpty { null }; editing = false }
+            TvButton("Cancel") { value = saved ?: ""; editing = false }
         }
     }
 }
 
 @Composable
-private fun Card(content: @Composable () -> Unit) {
-    Column(
-        Modifier
-            .width(640.dp)
-            .clip(RoundedCornerShape(S.radiusLg))
-            .background(C.bg100)
-            .padding(S.s4),
-        verticalArrangement = Arrangement.spacedBy(S.s2),
-    ) { content() }
+private fun PlayerPane(app: RestvApp) {
+    val agent by app.prefs.agent.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+    Txt("Player", T.titleLg)
+    Txt("Some providers treat unknown players differently. If channels keep dropping, try the VLC identity.", T.body, color = C.inkMuted, maxLines = 2)
+    Row(horizontalArrangement = Arrangement.spacedBy(S.s2)) {
+        Prefs.Agent.entries.forEach { a ->
+            TvButton(
+                text = (if (a == agent) "✓ " else "") + "Identify as ${a.label}",
+                primary = a == agent,
+                onClick = { app.prefs.setAgent(a) },
+            )
+        }
+    }
+    Txt("This TV reports: ${displayHdr(context) ?: "no HDR formats"}", T.body, color = C.inkFaint, modifier = Modifier.padding(top = S.s4))
+}
+
+@Composable
+private fun MatchesPane(app: RestvApp) {
+    var editing by remember { mutableStateOf(false) }
+    var url by remember { mutableStateOf(app.prefs.matchesUrl() ?: "") }
+    var key by remember { mutableStateOf(app.prefs.matchesKey() ?: "") }
+    Txt("Matches server (optional)", T.titleLg)
+    Txt("Matches load directly on this TV. Your server is only used if that fails.", T.body, color = C.inkMuted, maxLines = 2)
+    if (!editing) {
+        Txt(url.ifBlank { "Not set" }, T.bodyLg, color = if (url.isBlank()) C.inkFaint else C.ink)
+        TvButton(if (url.isBlank()) "Add" else "Change") { editing = true }
+    } else {
+        Column(Modifier.width(460.dp), verticalArrangement = Arrangement.spacedBy(S.s2)) {
+            TvTextField("Server URL", url, { url = it })
+            TvTextField("Key", key, { key = it }, password = true)
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(S.s2)) {
+            TvButton("Save", primary = true) { app.prefs.setMatchesServer(url, key); editing = false }
+            TvButton("Cancel") { url = app.prefs.matchesUrl() ?: ""; key = app.prefs.matchesKey() ?: ""; editing = false }
+        }
+    }
 }

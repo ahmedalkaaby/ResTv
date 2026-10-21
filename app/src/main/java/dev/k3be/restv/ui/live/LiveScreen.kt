@@ -124,6 +124,7 @@ fun LiveScreen(
     onNavigate: (SidebarItem) -> Unit,
 ) {
     val vm = rememberLiveViewModel(session)
+    var recentMenu by remember { mutableStateOf<ChannelRow?>(null) }
     val categories by vm.categories.collectAsStateWithLifecycle()
     val selected by vm.selected.collectAsStateWithLifecycle()
     val channels by vm.channels.collectAsStateWithLifecycle()
@@ -179,6 +180,18 @@ fun LiveScreen(
         }
     }
 
+    recentMenu?.let { r ->
+        val app = androidx.compose.ui.platform.LocalContext.current.applicationContext as dev.k3be.restv.RestvApp
+        dev.k3be.restv.ui.components.ActionMenu(
+            title = r.main.name,
+            actions = listOf(
+                "Remove from recently watched" to { app.prefs.removeRecent(session.login.id, r.streamId) },
+                (if (r.streamId in favs) "Remove from favourites" else "Add to favourites") to { vm.toggleFavorite(r.main) },
+            ),
+            onClose = { recentMenu = null },
+        )
+    }
+
     NavScaffold(active = SidebarItem.Live, onSelect = onNavigate) {
         CategoriesPane(
             vm = vm,
@@ -213,7 +226,8 @@ fun LiveScreen(
                     vm.focusChannel(row, near)
                 },
                 onPlay = { index -> onPlay(channels, index) },
-                onLongPress = { index -> vm.toggleFavorite(channels[index].main) },
+                // In Recently watched, hold OK offers removing the channel; elsewhere it toggles favourite.
+                onLongPress = { index -> if (selected == RECENT_ID) recentMenu = channels[index] else vm.toggleFavorite(channels[index].main) },
                 onLeftEdge = ::focusSelectedCategory,
                 modifier = Modifier.fillMaxSize(),
             )

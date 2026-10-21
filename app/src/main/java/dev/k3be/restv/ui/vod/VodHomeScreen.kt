@@ -68,6 +68,7 @@ fun VodHomeScreen(
     val wishIds by vm.wishIds.collectAsStateWithLifecycle()
     val tab = if (kind == "movie") SidebarItem.Movies else SidebarItem.Series
     var toast by remember { mutableStateOf<String?>(null) }
+    var menu by remember { mutableStateOf<Pair<Rail, VodCard>?>(null) }
     LaunchedEffect(toast) { if (toast != null) { delay(2_500); toast = null } }
 
     // Reload once a download finishes.
@@ -97,16 +98,29 @@ fun VodHomeScreen(
                         onRailShown = vm::loadRail,
                         onFocus = { rail, c -> vm.focus(c); vm.lastFocus = "${rail.id}|${c.id}" },
                         onClick = onOpen,
-                        onLongClick = { c ->
-                            toast = if (c.id in wishIds) "Removed from My List" else "Added to My List"
-                            vm.toggleWish(c)
-                        },
+                        onLongClick = { rail, c -> menu = rail to c },
                         onSeeAll = { rail -> if ((rail.cards?.size ?: 0) >= 8 || rail.id.startsWith("cat:")) ({ onSeeAll(rail) }) else null },
                     )
                 }
             }
         }
         toast?.let { Toast(it, Modifier.align(Alignment.BottomCenter).padding(bottom = S.safeY)) }
+    }
+    // Hold OK on a poster: details, My List, and removing it from Recently watched.
+    menu?.let { (rail, c) ->
+        val inList = c.id in wishIds
+        dev.k3be.restv.ui.components.ActionMenu(
+            title = c.title,
+            actions = buildList {
+                add("Open details" to { onOpen(c) })
+                add((if (inList) "Remove from My List" else "Add to My List") to {
+                    toast = if (inList) "Removed from My List" else "Added to My List"
+                    vm.toggleWish(c)
+                })
+                if (rail.id == "recent") add("Remove from Recently watched" to { vm.forget(c); toast = "Removed from Recently watched" })
+            },
+            onClose = { menu = null },
+        )
     }
 }
 
@@ -116,7 +130,7 @@ private fun VodHeroBackdrop(vm: VodViewModel) {
     // Wait for focus to settle before swapping the big picture: fast scrolling stays smooth.
     var shown by remember { mutableStateOf<String?>(null) }
     val target = hero?.backdrop ?: hero?.card?.poster?.takeIf { vm.kind == "series" }
-    LaunchedEffect(target) { delay(250); shown = target }
+    LaunchedEffect(target) { delay(150); shown = target }
     HeroBackdrop(shown)
 }
 
@@ -138,7 +152,7 @@ fun OneRailAtATime(
     onRailShown: (String) -> Unit,
     onFocus: (Rail, VodCard) -> Unit,
     onClick: (VodCard) -> Unit,
-    onLongClick: (VodCard) -> Unit,
+    onLongClick: (Rail, VodCard) -> Unit,
     onSeeAll: (Rail) -> (() -> Unit)?,
 ) {
     val listState = rememberLazyListState()
@@ -155,7 +169,7 @@ fun OneRailAtATime(
                 restoreCardId = if (restored) null else restoreId ?: if (firstRail) rail.cards?.firstOrNull()?.id else null,
                 onFocus = { c -> restored = true; onFocus(rail, c) },
                 onClick = onClick,
-                onLongClick = onLongClick,
+                onLongClick = { c -> onLongClick(rail, c) },
                 onSeeAll = onSeeAll(rail),
             )
     }

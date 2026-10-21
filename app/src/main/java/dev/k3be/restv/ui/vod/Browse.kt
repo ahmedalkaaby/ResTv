@@ -24,7 +24,7 @@ import androidx.compose.ui.unit.dp
 /** How much of the next row's title shows under the focused row. */
 val PEEK = 34.dp
 
-private val glide: AnimationSpec<Float> = tween(320, easing = FastOutSlowInEasing)
+private val glide: AnimationSpec<Float> = tween(110, easing = FastOutSlowInEasing)
 
 /**
  * Vertical: the focused row always slides into the same slot (its posters' top at [pivotPx]),

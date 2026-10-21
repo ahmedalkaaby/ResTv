@@ -238,7 +238,7 @@ class VodViewModel(
         heroJob?.cancel()
         _hero.value = Hero(card, card.backdrop ?: _hero.value?.takeIf { it.card.id == card.id }?.backdrop, card.plot, meta(card, null))
         heroJob = viewModelScope.launch {
-            delay(450)
+            delay(300)
             if (card.kind == "movie") {
                 val info = runCatching { app.vod.movieInfo(login, card.id) }.getOrNull() ?: return@launch
                 _hero.value = Hero(card, info.backdrop ?: info.poster, info.plot, meta(card, listOfNotNull(
@@ -255,6 +255,14 @@ class VodViewModel(
 
     private fun meta(c: VodCard, extra: List<String>?): String =
         (listOfNotNull(c.year?.toString(), c.rating?.let { "★ %.1f".format(it) }) + (extra ?: listOfNotNull(c.genre))).joinToString("  ·  ")
+
+    /** Removes a movie, or a whole series, from Recently watched / Continue watching. */
+    fun forget(card: VodCard) {
+        viewModelScope.launch {
+            if (card.kind == "movie") app.db.watchRemove().removeMovie(accountId, loginId, card.id)
+            else app.db.watchRemove().removeSeries(accountId, loginId, card.id)
+        }
+    }
 
     fun toggleWish(card: VodCard) {
         viewModelScope.launch {

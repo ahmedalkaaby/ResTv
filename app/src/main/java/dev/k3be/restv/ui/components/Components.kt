@@ -28,6 +28,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.foundation.layout.width
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.SolidColor
@@ -156,7 +158,7 @@ fun TvButton(
 ) {
     val source = remember { MutableInteractionSource() }
     val focused by source.collectIsFocusedAsState()
-    val scale by animateFloatAsState(if (focused) 1.04f else 1f, tween(150), label = "btn")
+    val scale by animateFloatAsState(if (focused) 1.04f else 1f, tween(90), label = "btn")
     val bg = when {
         focused -> C.focus
         !enabled -> C.bg200
@@ -304,4 +306,26 @@ object Icons {
     val film = stroke("film", "M4 5h16a1 1 0 0 1 1 1v12a1 1 0 0 1 -1 1h-16a1 1 0 0 1 -1 -1v-12a1 1 0 0 1 1 -1z", "M7 5v14M17 5v14M3 9h4M3 15h4M17 9h4M17 15h4")
     val series = stroke("series", "M4 8h16a1 1 0 0 1 1 1v10a1 1 0 0 1 -1 1h-16a1 1 0 0 1 -1 -1v-10a1 1 0 0 1 1 -1z", "M7 4h10", "M10 11.5v5l4 -2.5z")
     val download = stroke("download", "M12 4v12M7 11l5 5 5 -5M5 20h14")
+}
+
+/** A small menu for a held-OK press: "Remove from Continue watching", "Open details"… Back closes it. */
+@Composable
+fun ActionMenu(title: String, actions: List<Pair<String, () -> Unit>>, onClose: () -> Unit) {
+    androidx.compose.ui.window.Dialog(onDismissRequest = onClose) {
+        val first = remember { androidx.compose.ui.focus.FocusRequester() }
+        androidx.compose.runtime.LaunchedEffect(Unit) { runCatching { first.requestFocus() } }
+        androidx.compose.foundation.layout.Column(
+            Modifier.width(380.dp).clip(RoundedCornerShape(S.radiusLg)).background(C.bg100).padding(S.s4),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Txt(title, T.title, maxLines = 2, modifier = Modifier.padding(start = 8.dp, bottom = 6.dp))
+            actions.forEachIndexed { i, (label, action) ->
+                FocusRow(
+                    modifier = if (i == 0) Modifier.focusRequester(first) else Modifier,
+                    height = 48.dp,
+                    onClick = { onClose(); action() },
+                ) { _ -> Txt(label, T.label, modifier = Modifier.padding(horizontal = 14.dp)) }
+            }
+        }
+    }
 }

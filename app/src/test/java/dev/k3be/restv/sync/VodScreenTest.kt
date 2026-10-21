@@ -95,6 +95,12 @@ class VodScreenTest {
         rule.waitForIdle()
     }
 
+    @Test fun settingsRenders() {
+        val (_, session) = start()
+        rule.setContent { dev.k3be.restv.ui.settings.SettingsScreen(session, SyncState.Idle, {}, {}) }
+        rule.waitForIdle()
+    }
+
     @Test fun seriesDetailRenders() {
         val (_, session) = start()
         rule.setContent { SeriesDetailScreen(session, 1) { _, _, _ -> } }

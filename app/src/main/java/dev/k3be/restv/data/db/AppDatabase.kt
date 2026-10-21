@@ -35,6 +35,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun vod(): VodDao
     abstract fun watch(): WatchDao
     abstract fun wish(): WishDao
+    abstract fun watchRemove(): WatchRemoveDao
 
     companion object {
         fun create(context: Context): AppDatabase =

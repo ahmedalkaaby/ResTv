@@ -26,6 +26,12 @@ class Prefs(context: Context) {
     fun chosenVersion(kind: String, titleKey: String): Long? = sp.getLong("ver_${kind}_$titleKey", -1L).takeIf { it >= 0 }
     fun setChosenVersion(kind: String, titleKey: String, id: Long) { sp.edit().putLong("ver_${kind}_$titleKey", id).apply() }
 
+    /** Subtitle size 0 = small, 1 = medium, 2 = large; and whether lines get a dark box behind them. */
+    fun subSize(): Int = sp.getInt("subSize", 1)
+    fun setSubSize(v: Int) { sp.edit().putInt("subSize", v).apply() }
+    fun subBox(): Boolean = sp.getBoolean("subBox", true)
+    fun setSubBox(v: Boolean) { sp.edit().putBoolean("subBox", v).apply() }
+
     /** SubDL API key for Arabic subtitles. */
     fun subdlKey(): String? = sp.getString("subdlKey", null)?.trim()?.takeIf { it.isNotEmpty() }
     fun setSubdlKey(k: String) { sp.edit().putString("subdlKey", k.trim()).apply() }
@@ -82,6 +88,13 @@ class Prefs(context: Context) {
     fun addRecent(loginId: Long, streamId: Long) {
         val flow = recent(loginId) as MutableStateFlow
         val next = (listOf(streamId) + flow.value.filter { it != streamId }).take(30)
+        flow.value = next
+        sp.edit().putString("recent_$loginId", next.joinToString(",")).apply()
+    }
+
+    fun removeRecent(loginId: Long, streamId: Long) {
+        val flow = recent(loginId) as MutableStateFlow
+        val next = flow.value.filter { it != streamId }
         flow.value = next
         sp.edit().putString("recent_$loginId", next.joinToString(",")).apply()
     }
