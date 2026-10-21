@@ -114,11 +114,6 @@ fun PosterCard(
                 .remoteClickable(source, onClick, onLongClick),
         ) {
             PosterArt(card)
-            Row(Modifier.align(Alignment.TopStart).padding(5.dp), horizontalArrangement = Arrangement.spacedBy(3.dp)) {
-                if (card.quality == 3) Chip("4K", C.uhd)
-                card.source?.let { Chip(it + if (card.otherSources.isNotEmpty()) " +${card.otherSources.size}" else "", C.ink) }
-            }
-            if (inList) Txt("✓", T.label, color = C.accent, modifier = Modifier.align(Alignment.TopEnd).padding(5.dp).background(C.scrimStrong, RoundedCornerShape(50)).padding(horizontal = 6.dp))
             Column(Modifier.align(Alignment.BottomStart).fillMaxWidth()) {
                 if (card.note != null) {
                     Txt(card.note, T.caption, color = C.ink, modifier = Modifier.padding(5.dp).background(C.scrimStrong, RoundedCornerShape(S.radiusSm)).padding(horizontal = 6.dp, vertical = 1.dp))
@@ -174,12 +169,12 @@ fun RailRow(
     val cards = rail.cards.orEmpty()
     val state = rememberLazyListState()
     Column(Modifier.fillMaxWidth().height(if (showTitles) RAIL_H + 22.dp else RAIL_H), verticalArrangement = Arrangement.spacedBy(S.s2)) {
-        RailHeader(rail.title, rail.accent, nextTitle, start)
+        RailHeader(rail.title, rail.accent, null, start)
         if (cards.isEmpty()) {
             SkeletonRow(start)
             return@Column
         }
-        LazyRow(
+        KeepInView { LazyRow(
             state = state,
             contentPadding = PaddingValues(start = start, end = S.safeX, top = 6.dp, bottom = 6.dp),
             horizontalArrangement = Arrangement.spacedBy(14.dp),
@@ -198,7 +193,7 @@ fun RailRow(
                 )
             }
             if (onSeeAll != null) item(key = "all") { SeeAllTile(onSeeAll) }
-        }
+        } }
     }
 }
 
@@ -226,18 +221,19 @@ private fun SeeAllTile(onClick: () -> Unit) {
     ) { Txt("See all ›", T.label, color = if (focused) C.focusInk else C.inkMuted, modifier = Modifier, maxLines = 1) }
 }
 
-/** Title, facts, sources and plot for the focused poster, above the rail. */
+/** Title, one line of facts, small badges and two lines of plot: nothing else competes with the artwork. */
 @Composable
 fun HeroInfo(hero: Hero?, modifier: Modifier = Modifier) {
-    Column(modifier.padding(start = S.safeX, end = S.safeX, bottom = S.s3).width(560.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Column(modifier.padding(start = S.safeX, end = S.safeX, bottom = S.s4).width(540.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         if (hero == null) return@Column
-        Txt(hero.card.title, T.displayXl.copy(fontSize = T.display.fontSize.times(1.15f)), maxLines = 2)
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-            if (hero.meta.isNotBlank()) Txt(hero.meta, T.label, color = C.accent)
-            if (hero.card.quality == 3) Badge("4K", BadgeKind.Uhd)
-            (listOfNotNull(hero.card.source) + hero.card.otherSources).forEach { Badge(it, BadgeKind.Plain) }
+        Txt(hero.card.title, T.display.copy(fontSize = T.display.fontSize.times(1.1f), fontWeight = androidx.compose.ui.text.font.FontWeight.ExtraBold), maxLines = 2)
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+            if (hero.meta.isNotBlank()) Txt(hero.meta, T.label, color = C.inkMuted)
+            if (hero.card.quality == 3) Chip("4K", C.uhd)
+            val sources = listOfNotNull(hero.card.source) + hero.card.otherSources
+            if (sources.isNotEmpty()) Chip(sources.joinToString(" · "), C.ink)
         }
-        hero.plot?.let { Txt(it, T.bodyLg, color = C.inkMuted, maxLines = 3) }
+        hero.plot?.let { Txt(it, T.body, color = C.inkMuted, maxLines = 2) }
     }
 }
 

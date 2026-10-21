@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -64,6 +65,57 @@ import dev.k3be.restv.ui.theme.S
 import dev.k3be.restv.ui.theme.T
 import kotlinx.coroutines.launch
 
+// ---------------------------------------------------------------- Versions
+
+/** One copy of a title in the picker: "English" / "EN · 4K · MKV · Netflix Movies". */
+data class VersionOption(val id: Long, val title: String, val detail: String)
+
+/** "Arabic subtitles", or the provider category ("Netflix Movies") when the name has no language tag. */
+fun versionTitle(raw: String, categoryName: String?): String =
+    VodNaming.source(raw, categoryName)?.let(VodNaming::sourceDescription)
+        ?: categoryName?.let { Naming.split(it).name.trim() }?.takeIf { it.isNotBlank() }
+        ?: "Standard"
+
+fun versionDetail(raw: String, quality: Int, ext: String?, categoryName: String?): String =
+    listOfNotNull(VodNaming.source(raw, categoryName), Naming.qualityLabel(quality) ?: "SD", ext?.uppercase(), categoryName?.let { Naming.split(it).name.trim() })
+        .distinct().joinToString("  ·  ")
+
+/** A calm list on the right: pick the language/quality copy once, it stays picked for this title. */
+@Composable
+fun VersionPicker(options: List<VersionOption>, current: Long, onPick: (VersionOption) -> Unit, onClose: () -> Unit, modifier: Modifier) {
+    androidx.activity.compose.BackHandler { onClose() }
+    val first = remember { FocusRequester() }
+    LaunchedEffect(Unit) { runCatching { first.requestFocus() } }
+    Column(
+        modifier.width(420.dp).fillMaxHeight().background(C.bg100.copy(alpha = 0.98f))
+            .padding(start = S.s6, end = S.safeX, top = S.safeY + 8.dp, bottom = S.safeY),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Txt("Choose a version", T.titleLg)
+        Txt("Language and picture quality. Your choice is remembered for this title.", T.caption, color = C.inkFaint, maxLines = 2)
+        androidx.compose.foundation.lazy.LazyColumn(Modifier.padding(top = S.s3), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            items(options.size) { k ->
+                val o = options[k]
+                val selected = o.id == current
+                dev.k3be.restv.ui.components.FocusRow(
+                    modifier = if (selected || (k == 0 && options.none { it.id == current })) Modifier.focusRequester(first) else Modifier,
+                    selected = selected,
+                    height = 62.dp,
+                    onClick = { onPick(o) },
+                ) { _ ->
+                    Row(Modifier.padding(horizontal = 14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Txt(if (selected) "✓" else " ", T.title, color = C.accent, modifier = Modifier.width(18.dp))
+                        Column {
+                            Txt(o.title, T.title)
+                            Txt(o.detail, T.caption, color = C.inkMuted)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 // ---------------------------------------------------------------- Movie
 
 @Composable
@@ -81,12 +133,19 @@ fun MovieDetailScreen(
     var chosen by remember { mutableStateOf(id) }
     var info by remember { mutableStateOf<MovieInfo?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
+    var cats by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
+    var picking by remember { mutableStateOf(false) }
+    var toast by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(toast) { if (toast != null) { kotlinx.coroutines.delay(2_500); toast = null } }
     LaunchedEffect(id) {
         val m = app.db.vod().movie(loginId, id) ?: return@LaunchedEffect
-        movie = m
+        cats = app.db.vod().categories(loginId, "movie").associate { it.categoryId to it.rawName }
         versions = app.db.vod().movieVersions(loginId, m.titleKey)
             .filter { it.year == null || m.year == null || it.year == m.year }
-            .sortedWith(compareByDescending<MovieEntity> { it.streamId == id }.thenByDescending { it.quality })
+            .sortedWith(compareByDescending<MovieEntity> { it.quality }.thenBy { it.streamId })
+        // The version picked last time wins over whichever copy the poster pointed at.
+        app.prefs.chosenVersion("movie", m.titleKey)?.takeIf { c -> versions.any { it.streamId == c } }?.let { chosen = it }
+        movie = m
     }
     LaunchedEffect(chosen) {
         info = null
@@ -103,6 +162,7 @@ fun MovieDetailScreen(
     val current = versions.firstOrNull { it.streamId == chosen } ?: m
     val i = info
     fun play(fromStart: Boolean) {
+        app.prefs.setChosenVersion("movie", m.titleKey, current.streamId)
         onPlay(
             listOf(PlayItem("movie", current.streamId, 0, 0, 0, i?.title ?: m.name,
                 listOfNotNull(VodNaming.source(current.rawName)?.let(VodNaming::sourceDescription), Naming.qualityLabel(current.quality), m.year?.toString(), i?.genre)
@@ -113,13 +173,10 @@ fun MovieDetailScreen(
     }
 
     Box(Modifier.fillMaxSize()) {
-        Backdrop(i?.backdrop ?: m.poster, widthFraction = 0.78f, heightFraction = 0.9f)
-        Row(Modifier.fillMaxSize().padding(start = S.safeX, end = S.safeX, top = S.safeY + 8.dp), horizontalArrangement = Arrangement.spacedBy(S.s6)) {
-            Box(Modifier.size(170.dp, 255.dp).clip(RoundedCornerShape(S.radiusMd)).background(C.bg200)) {
-                PosterArt(VodCard("movie", m.streamId, m.name, m.year, i?.poster ?: m.poster))
-            }
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Txt(i?.title ?: m.name, T.display, maxLines = 2)
+        Backdrop(i?.backdrop ?: m.poster, widthFraction = 0.8f, heightFraction = 1f)
+        Row(Modifier.fillMaxSize().padding(start = S.safeX, end = S.safeX, top = 64.dp), horizontalArrangement = Arrangement.spacedBy(S.s6)) {
+            Column(Modifier.width(600.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Txt(i?.title ?: m.name, T.displayXl, maxLines = 2)
                 Row(horizontalArrangement = Arrangement.spacedBy(S.s2), verticalAlignment = Alignment.CenterVertically) {
                     val meta = listOfNotNull(
                         (i?.year ?: m.year)?.toString(),
@@ -127,14 +184,11 @@ fun MovieDetailScreen(
                         i?.genre?.split(',')?.take(3)?.joinToString(", ") { it.trim() },
                         (i?.rating ?: m.rating)?.let { "★ %.1f".format(it) },
                     )
-                    Txt(meta.joinToString("  ·  "), T.label, color = C.accent)
+                    Txt(meta.joinToString("  ·  "), T.label, color = C.inkMuted)
                     if (current.quality == 3) Badge("4K", BadgeKind.Uhd)
-                    VodNaming.source(current.rawName)?.let { Badge(VodNaming.sourceDescription(it), BadgeKind.Plain) }
                 }
-                Txt(i?.plot ?: if (error != null) "Couldn't load the details: $error" else "", T.body, color = C.inkMuted, maxLines = 4, modifier = Modifier.width(560.dp))
-                listOfNotNull(i?.director?.let { "Director  $it" }, i?.cast?.let { "Cast  $it" }).forEach {
-                    Txt(it, T.caption, color = C.inkFaint, maxLines = 1, modifier = Modifier.width(560.dp))
-                }
+                Txt(i?.plot ?: if (error != null) "Couldn't load the details: $error" else "", T.bodyLg, color = C.inkMuted, maxLines = 3)
+                i?.cast?.let { Txt("Starring  $it", T.caption, color = C.inkFaint, maxLines = 1) }
                 val w = watch
                 val started = w != null && w.positionMs > 30_000 && !w.finished
                 if (started && w != null) {
@@ -153,20 +207,26 @@ fun MovieDetailScreen(
                             else app.db.wish().add(WishEntity(accountId, loginId, "movie", id, System.currentTimeMillis()))
                         }
                     }
+                    if (versions.size > 1) TvButton("Versions (${versions.size})") { picking = true }
                 }
-                if (versions.size > 1) {
-                    Txt("ALSO AVAILABLE AS", T.section, modifier = Modifier.padding(top = 6.dp))
-                    LazyRow(horizontalArrangement = Arrangement.spacedBy(S.s2)) {
-                        items(versions.size) { k ->
-                            val v = versions[k]
-                            val src = VodNaming.source(v.rawName)
-                            val label = listOfNotNull(src?.let { "$it · ${VodNaming.sourceDescription(it)}" } ?: "Other", Naming.qualityLabel(v.quality)).joinToString(" · ")
-                            TvButton((if (v.streamId == chosen) "✓ " else "") + label, primary = v.streamId == chosen) { chosen = v.streamId }
-                        }
-                    }
-                }
+                // The copy that plays: language and quality, changeable here only.
+                val cat = cats[current.categoryId]
+                Txt("Playing:  ${versionTitle(current.rawName, cat)}  ·  ${Naming.qualityLabel(current.quality) ?: "SD"}", T.label, color = C.ink)
             }
         }
+        if (picking) VersionPicker(
+            options = versions.map { v -> VersionOption(v.streamId, versionTitle(v.rawName, cats[v.categoryId]), versionDetail(v.rawName, v.quality, v.ext, cats[v.categoryId])) },
+            current = chosen,
+            onPick = { o ->
+                chosen = o.id
+                app.prefs.setChosenVersion("movie", m.titleKey, o.id)
+                picking = false
+                toast = "Now playing: ${o.title}"
+            },
+            onClose = { picking = false },
+            modifier = Modifier.align(Alignment.CenterEnd),
+        )
+        toast?.let { dev.k3be.restv.ui.components.Toast(it, Modifier.align(Alignment.BottomCenter).padding(bottom = S.safeY)) }
     }
 }
 
@@ -178,9 +238,16 @@ fun SeriesDetailScreen(
     id: Long,
     onPlay: (List<PlayItem>, Int, Boolean) -> Unit,
 ) {
-    // Other language versions of the same show switch in place.
-    var current by remember { mutableStateOf(id) }
-    androidx.compose.runtime.key(current) { SeriesDetailBody(session, current, { current = it }, onPlay) }
+    // The version picked last time opens directly; switching versions happens on this page.
+    val app = LocalContext.current.applicationContext as RestvApp
+    var current by remember { mutableStateOf<Long?>(null) }
+    LaunchedEffect(id) {
+        val s = app.db.vod().series(session.login.id, id)
+        current = s?.let { app.prefs.chosenVersion("series", it.titleKey) }
+            ?.takeIf { c -> app.db.vod().seriesByKeys(session.login.id, listOf(s.titleKey)).any { it.seriesId == c } } ?: id
+    }
+    val c = current ?: return
+    androidx.compose.runtime.key(c) { SeriesDetailBody(session, c, { current = it }, onPlay) }
 }
 
 @Composable
@@ -198,7 +265,10 @@ private fun SeriesDetailBody(
     var info by remember { mutableStateOf<SeriesInfo?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
     var versions by remember { mutableStateOf<List<SeriesEntity>>(emptyList()) }
+    var cats by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
+    var picking by remember { mutableStateOf(false) }
     LaunchedEffect(id) {
+        cats = app.db.vod().categories(loginId, "series").associate { it.categoryId to it.rawName }
         series = app.db.vod().series(loginId, id)
         series?.let { s0 ->
             versions = app.db.vod().seriesByKeys(loginId, listOf(s0.titleKey))
@@ -240,6 +310,7 @@ private fun SeriesDetailBody(
     }
     fun play(index: Int) {
         val e = all.getOrNull(index) ?: return
+        s?.let { app.prefs.setChosenVersion("series", it.titleKey, id) }
         val w = byEpisode[e.id]
         onPlay(queue(), index, w == null || w.finished)
     }
@@ -257,7 +328,7 @@ private fun SeriesDetailBody(
                 )
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
                     Txt(meta.joinToString("  ·  "), T.label, color = C.accent)
-                    s?.let { VodNaming.source(it.rawName) }?.let { Badge(VodNaming.sourceDescription(it), BadgeKind.Plain) }
+                    s?.let { Badge(versionTitle(it.rawName, cats[it.categoryId]), BadgeKind.Plain) }
                 }
                 Txt(i?.plot ?: s?.plot ?: if (error != null) "Couldn't load the episodes: $error" else "Loading…", T.body, color = C.inkMuted, maxLines = 3)
             }
@@ -277,9 +348,7 @@ private fun SeriesDetailBody(
                     }
                 }
                 // Other versions of this show (EN, AR, AR SUBS…): one press switches.
-                versions.filter { it.seriesId != id }.forEach { v ->
-                    TvButton(VodNaming.source(v.rawName)?.let { "$it version" } ?: "Other version") { onSwitch(v.seriesId) }
-                }
+                if (versions.size > 1) TvButton("Versions (${versions.size})") { picking = true }
             }
             if (i != null && i.seasons.isNotEmpty()) {
                 LazyRow(contentPadding = PaddingValues(horizontal = S.safeX), horizontalArrangement = Arrangement.spacedBy(S.s2)) {
@@ -336,6 +405,17 @@ private fun SeriesDetailBody(
                 )
             }
         }
+        if (picking) VersionPicker(
+            options = versions.map { v -> VersionOption(v.seriesId, versionTitle(v.rawName, cats[v.categoryId]), versionDetail(v.rawName, 0, null, cats[v.categoryId]).replace("SD  ·  ", "")) },
+            current = id,
+            onPick = { o ->
+                picking = false
+                s?.let { app.prefs.setChosenVersion("series", it.titleKey, o.id) }
+                if (o.id != id) onSwitch(o.id)
+            },
+            onClose = { picking = false },
+            modifier = Modifier.align(Alignment.CenterEnd),
+        )
     }
 }
 

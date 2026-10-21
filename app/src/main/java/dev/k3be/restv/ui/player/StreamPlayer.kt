@@ -47,6 +47,8 @@ data class VideoInfo(
     val fps: Float,
     val codec: String?,
     val audio: String?,
+    /** "HDR10", "Dolby Vision", "HLG"; null for SDR. */
+    val range: String? = null,
 ) {
     val resolution: String get() = "${width}×${height}"
 }
@@ -220,6 +222,7 @@ class StreamPlayer(
             fps = f.frameRate,
             codec = codecName(f.sampleMimeType),
             audio = a?.let { audioName(it.sampleMimeType, it.channelCount) },
+            range = dynamicRange(f),
         )
     }
 

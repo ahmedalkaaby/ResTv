@@ -126,7 +126,7 @@ fun HomeScreen(
     Box(Modifier.fillMaxSize()) {
         HomeBackdrop(heroKind, movies, series)
         Column(Modifier.fillMaxSize()) {
-            TopBar(SidebarItem.Home, onNavigate)
+            TopBar(SidebarItem.Home, onNavigate, autoHide = rows.isNotEmpty())
             Box(Modifier.fillMaxWidth().weight(1f)) {
                 if (heroKind == "live") LiveHero(heroChannel, Modifier.align(Alignment.BottomStart))
                 else HomeHeroInfo(heroKind, movies, series, Modifier.align(Alignment.BottomStart))
@@ -135,8 +135,7 @@ fun HomeScreen(
                         modifier = Modifier.align(Alignment.CenterStart).padding(start = S.safeX))
                 }
             }
-            LazyColumn(state = listState, userScrollEnabled = false, modifier = Modifier.fillMaxWidth().height(RAIL_H)) {
-                items(rows.size, key = { rows[it].id }) { i ->
+            dev.k3be.restv.ui.vod.BrowseRows(count = rows.size, key = { rows[it].id }, state = listState) { i ->
                     val row = rows[i]
                     val next = rows.getOrNull(i + 1)?.title
                     val restoreId = start?.takeIf { it.startsWith("${row.id}|") }?.substringAfter('|')?.toLongOrNull()
@@ -173,7 +172,6 @@ fun HomeScreen(
                             onClick = { index -> onPlayLive(row.rows, index) },
                         )
                     }
-                }
             }
         }
         toast?.let { Toast(it, Modifier.align(Alignment.BottomCenter).padding(bottom = S.safeY)) }
@@ -227,7 +225,7 @@ private fun LiveRail(
 ) {
     Column(Modifier.fillMaxWidth().height(RAIL_H), verticalArrangement = Arrangement.spacedBy(S.s2)) {
         RailHeader(title, false, nextTitle, S.safeX)
-        LazyRow(
+        dev.k3be.restv.ui.vod.KeepInView { LazyRow(
             contentPadding = PaddingValues(start = S.safeX, end = S.safeX, top = 6.dp, bottom = 6.dp),
             horizontalArrangement = Arrangement.spacedBy(14.dp),
         ) {
@@ -235,7 +233,7 @@ private fun LiveRail(
                 val r = rows[i]
                 LiveTile(r, requestFocus = restoreId == r.streamId, onFocus = { onFocus(r) }, onClick = { onClick(i) })
             }
-        }
+        } }
     }
 }
 

@@ -22,6 +22,10 @@ class Prefs(context: Context) {
     fun vodParser(): Int = sp.getInt("vodParser", 0)
     fun setVodParser(v: Int) { sp.edit().putInt("vodParser", v).apply() }
 
+    /** The version (language/quality copy) you picked for a title, so it stays picked. */
+    fun chosenVersion(kind: String, titleKey: String): Long? = sp.getLong("ver_${kind}_$titleKey", -1L).takeIf { it >= 0 }
+    fun setChosenVersion(kind: String, titleKey: String, id: Long) { sp.edit().putLong("ver_${kind}_$titleKey", id).apply() }
+
     /** SubDL API key for Arabic subtitles. */
     fun subdlKey(): String? = sp.getString("subdlKey", null)?.trim()?.takeIf { it.isNotEmpty() }
     fun setSubdlKey(k: String) { sp.edit().putString("subdlKey", k.trim()).apply() }

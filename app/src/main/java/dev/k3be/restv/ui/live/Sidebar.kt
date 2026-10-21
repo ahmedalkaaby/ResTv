@@ -25,6 +25,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.focus.FocusRequester
@@ -72,11 +73,16 @@ class TopBarFocus {
 val LocalTopBarFocus = staticCompositionLocalOf { TopBarFocus() }
 
 @Composable
-fun TopBar(active: SidebarItem, onSelect: (SidebarItem) -> Unit) {
+fun TopBar(active: SidebarItem, onSelect: (SidebarItem) -> Unit, autoHide: Boolean = false) {
     val bar = LocalTopBarFocus.current
     DisposableEffect(Unit) { onDispose { bar.hasFocus = false } }
+    // On artwork screens the bar fades away while you browse and comes back when you go up to it.
+    val alpha by androidx.compose.animation.core.animateFloatAsState(
+        if (!autoHide || bar.hasFocus) 1f else 0f, androidx.compose.animation.core.tween(220), label = "bar",
+    )
     Row(
         Modifier.fillMaxWidth().padding(start = S.safeX, end = S.safeX, top = 16.dp)
+            .graphicsLayer { this.alpha = alpha }
             .onFocusChanged { bar.hasFocus = it.hasFocus },
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -119,8 +125,9 @@ private fun NavItem(item: SidebarItem, active: Boolean, modifier: Modifier = Mod
         contentAlignment = Alignment.Center,
     ) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Icon(item.icon, if (active && !focused) C.accent else fg, 18.dp)
-            Txt(item.label, T.label, color = fg)
+            val iconOnly = item == SidebarItem.Search || item == SidebarItem.Settings
+            if (iconOnly) Icon(item.icon, if (active && !focused) C.accent else fg, 20.dp)
+            else Txt(item.label, T.label.copy(fontSize = T.label.fontSize.times(1.1f)), color = if (active && !focused) C.accent else fg)
         }
     }
 }

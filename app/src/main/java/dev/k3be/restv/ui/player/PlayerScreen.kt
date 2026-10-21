@@ -137,6 +137,10 @@ fun PlayerScreen(
     val commentaryState by commentary.state.collectAsStateWithLifecycle()
     val commentaryDelay by commentary.delayMs.collectAsStateWithLifecycle()
     val commentaryOn = commentaryState !is CommentaryState.Off
+    var chipVisible by remember { mutableStateOf(false) }
+    LaunchedEffect(commentary.source, commentaryOpen) {
+        if (commentary.source != null && !commentaryOpen) { chipVisible = true; delay(5_000); chipVisible = false }
+    }
 
     var overlayToken by remember { mutableIntStateOf(1) }
     var overlayVisible by remember { mutableStateOf(true) }
@@ -303,7 +307,9 @@ fun PlayerScreen(
             )
         }
 
-        if (commentaryOn && !commentaryOpen) {
+        // The commentary chip shows for 5 s after picking a source (and with the info bar), so it never
+        // sits over the score in the corner.
+        if (commentaryOn && !commentaryOpen && (chipVisible || overlayVisible)) {
             CommentaryChip(commentary.source?.name ?: "", commentaryState, Modifier.align(Alignment.TopStart).padding(top = S.safeY, start = S.safeX))
         }
 
@@ -510,6 +516,7 @@ private fun InfoOverlay(
                             }
                             val fps = if (video.fps > 0) " · ${Math.round(video.fps)} fps" else ""
                             Badge(video.resolution + fps + (video.codec?.let { " · $it" } ?: ""))
+                            video.range?.let { Badge(it, BadgeKind.Uhd) }
                             video.audio?.let { Badge(it) }
                         } else {
                             QualityBadge(channel.quality)

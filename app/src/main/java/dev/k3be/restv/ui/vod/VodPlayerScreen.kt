@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
@@ -96,13 +97,9 @@ private data class PanelRow(
     val selected: Boolean = false,
     val header: Boolean = false,
     val note: Boolean = false,
-    val onLeft: (() -> Unit)? = null,
-    val onRight: (() -> Unit)? = null,
+    val keepOpen: Boolean = false,
     val onClick: (() -> Unit)? = null,
 )
-
-/** Another copy of what's playing (other language or quality) to switch to. */
-private data class Version(val label: String, val switch: suspend () -> Unit)
 
 /**
  * Movies and episodes: resumes where you stopped and saves every 5 s, seeks with Left/Right
@@ -147,6 +144,7 @@ fun VodPlayerScreen(
             .setLoadControl(loadControl)
             .build().apply {
                 trackSelectionParameters = trackSelectionParameters.buildUpon()
+                    .setPreferredAudioLanguages("en", "eng")
                     .setPreferredTextLanguages("ar", "ara", "en")
                     .setSelectUndeterminedTextLanguage(false)
                     .build()
@@ -161,6 +159,9 @@ fun VodPlayerScreen(
     var ended by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var tracks by remember { mutableStateOf(Tracks.EMPTY) }
+    var vFormat by remember { mutableStateOf<androidx.media3.common.Format?>(null) }
+    var aFormat by remember { mutableStateOf<androidx.media3.common.Format?>(null) }
+    val tvHdr = remember { dev.k3be.restv.ui.player.displayHdr(context) }
     var overlayToken by remember { mutableIntStateOf(1) }
     var overlay by remember { mutableStateOf(true) }
     var panelOpen by remember { mutableStateOf(false) }
@@ -180,7 +181,6 @@ fun VodPlayerScreen(
     var cueText by remember { mutableStateOf<String?>(null) }
 
     // ---- Versions, intro, credits
-    var versions by remember { mutableStateOf<List<Version>>(emptyList()) }
     var intro by remember(item.seriesId) { mutableStateOf(if (isEpisode) app.prefs.intro(item.seriesId) else null) }
     var fwdFrom by remember { mutableStateOf<Long?>(null) }
     var lastSeekAt by remember { mutableLongStateOf(0L) }
@@ -230,7 +230,8 @@ fun VodPlayerScreen(
                 playing = isPlaying
                 if (!isPlaying) save()
             }
-            override fun onTracksChanged(t: Tracks) { tracks = t }
+            override fun onTracksChanged(t: Tracks) { tracks = t; vFormat = player.videoFormat; aFormat = player.audioFormat }
+            override fun onVideoSizeChanged(videoSize: androidx.media3.common.VideoSize) { vFormat = player.videoFormat }
             override fun onPlayerError(e: PlaybackException) {
                 if (retries < 2) {
                     retries++
@@ -307,41 +308,6 @@ fun VodPlayerScreen(
         }
     }
 
-    // Other versions of what's playing (other language or quality).
-    LaunchedEffect(index, item.id) {
-        versions = runCatching {
-            if (item.kind == "movie") {
-                val m = app.db.vod().movie(loginId, item.id) ?: return@runCatching emptyList()
-                app.db.vod().movieVersions(loginId, m.titleKey)
-                    .filter { it.streamId != m.streamId && (it.year == null || m.year == null || it.year == m.year) }
-                    .map { v ->
-                        Version(listOfNotNull(VodNaming.source(v.rawName)?.let { "$it · ${VodNaming.sourceDescription(it)}" } ?: "Other source", Naming.qualityLabel(v.quality)).joinToString(" · ")) {
-                            keepAt = player.currentPosition
-                            q = q.toMutableList().also { it[index] = it[index].copy(id = v.streamId, ext = v.ext) }
-                        }
-                    }
-            } else {
-                val s = app.db.vod().series(loginId, item.seriesId) ?: return@runCatching emptyList()
-                app.db.vod().seriesByKeys(loginId, listOf(s.titleKey)).filter { it.seriesId != s.seriesId }.map { other ->
-                    Version((VodNaming.source(other.rawName)?.let { "$it · ${VodNaming.sourceDescription(it)}" } ?: "Other source") + " · S${item.season}:E${item.episode}") {
-                        val info = app.vod.seriesInfo(session.login, other.seriesId)
-                        val all = info.seasons.flatMap { it.episodes }
-                        val k = all.indexOfFirst { it.season == item.season && it.number == item.episode }
-                        if (k < 0) { notice = "That version doesn't have S${item.season}:E${item.episode}"; return@Version }
-                        val src = VodNaming.source(other.rawName)?.let(VodNaming::sourceDescription)
-                        keepAt = player.currentPosition
-                        q = all.map { e ->
-                            PlayItem("episode", e.id, other.seriesId, e.season, e.number, item.title,
-                                listOfNotNull("S${e.season}:E${e.number} · ${e.title}", src).joinToString(" · "),
-                                e.image ?: info.backdrop ?: item.image, e.ext, e.durationMs)
-                        }
-                        index = k
-                    }
-                }
-            }
-        }.getOrDefault(emptyList())
-    }
-
     // Clock for the progress bar, plus a save every 5 s.
     LaunchedEffect(Unit) {
         var tick = 0
@@ -352,7 +318,7 @@ fun VodPlayerScreen(
             delay(500)
         }
     }
-    LaunchedEffect(overlayToken) { overlay = true; delay(4_000); if (player.isPlaying) overlay = false }
+    LaunchedEffect(overlayToken) { overlay = true; delay(if (overlayToken <= 2) 7_000 else 4_000); if (player.isPlaying) overlay = false }
     LaunchedEffect(notice) { if (notice != null) { delay(3_500); notice = null } }
 
     val hasNext = index < q.lastIndex && q[index + 1].kind == "episode"
@@ -516,13 +482,28 @@ fun VodPlayerScreen(
             ) {
                 Txt(item.title, T.titleLg)
                 item.subtitle?.let { Txt(it, T.body, color = C.inkMuted) }
+                // What's actually playing: picture, dynamic range, sound, subtitles.
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    val vf = vFormat
+                    val range = dev.k3be.restv.ui.player.dynamicRange(vf)
+                    dev.k3be.restv.ui.player.resolutionLabel(vf?.width ?: 0, vf?.height ?: 0)?.let { Chip(it, if (it == "4K") C.uhd else C.ink) }
+                    Chip(range ?: "SDR", if (range != null) C.uhd else C.inkMuted)
+                    dev.k3be.restv.ui.player.audioLabel(aFormat)?.let { Chip(it, C.ink) }
+                    val subLabel = when {
+                        extOn -> "Arabic subtitles"
+                        tracks.groups.any { it.type == MC.TRACK_TYPE_TEXT && it.isSelected } -> "Subtitles from file"
+                        else -> null
+                    }
+                    subLabel?.let { Chip(it, C.ink) }
+                    if (range != null && tvHdr == null) Txt("· this TV didn't report HDR support", T.caption, color = C.inkFaint)
+                }
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(S.s3)) {
                     Txt(if (playing) "▶" else "❚❚", T.label, color = C.accent)
                     Txt(clock(position), T.label)
                     ProgressBar(if (duration > 0) position.toFloat() / duration else 0f, Modifier.weight(1f), height = 6.dp)
                     Txt(if (duration > 0) "-" + clock(duration - position) else "--:--", T.label, color = C.inkMuted)
                 }
-                Txt("◀ ▶ seek (hold to go faster)  ·  OK pause  ·  ▲ subtitles, audio, versions", T.caption, color = C.inkFaint)
+                Txt("◀ ▶ seek (hold to go faster)  ·  OK pause  ·  ▲ audio & subtitles", T.caption, color = C.inkFaint)
             }
         }
 
@@ -548,44 +529,36 @@ fun VodPlayerScreen(
         }
 
         if (panelOpen) {
-            val rows = buildList {
-                add(PanelRow("SUBTITLES", header = true))
-                val (audio, text) = trackChoices(player, tracks)
+            val (audio, text) = trackChoices(player, tracks)
+            val audioRows = audio.map { c -> PanelRow(c.label, selected = c.selected, onClick = c.apply) }
+                .ifEmpty { listOf(PanelRow("Only one audio track", note = true)) }
+            val subRows = buildList {
                 add(PanelRow("Off", selected = !extOn && text.first().selected, onClick = { useExternal(false); text.first().apply() }))
-                text.drop(1).forEach { c -> add(PanelRow(c.label + "  (in file)", selected = !extOn && c.selected, onClick = { useExternal(false); c.apply() })) }
                 subOptions.take(8).forEachIndexed { i, o ->
-                    add(PanelRow("Arabic · ${o.release}", selected = extOn && subChoice == i, onClick = { loadSub(i) }))
+                    add(PanelRow("Arabic · ${o.release.take(34)}", selected = extOn && subChoice == i, onClick = { loadSub(i) }))
                 }
+                text.drop(1).forEach { c -> add(PanelRow("${c.label} · in file", selected = !extOn && c.selected, onClick = { useExternal(false); c.apply() })) }
                 subStatus?.let { add(PanelRow(it, note = true)) }
-                if (extOn) {
-                    add(PanelRow("SUBTITLE TIMING", header = true))
-                    val sign = if (subDelay > 0) "+" else ""
-                    add(PanelRow(
-                        "◀  ${sign}${"%.1f".format(subDelay / 1000f)} s  ▶   " + when {
-                            subDelay > 0 -> "(later)"; subDelay < 0 -> "(earlier)"; else -> "(as is)"
-                        },
-                        onLeft = { subDelay -= 250; app.prefs.setSubDelay(delayKey, subDelay) },
-                        onRight = { subDelay += 250; app.prefs.setSubDelay(delayKey, subDelay) },
-                        onClick = { subDelay = 0; app.prefs.setSubDelay(delayKey, 0) },
-                    ))
-                    add(PanelRow("◀ ▶ shift by ¼ s · OK resets. Saved for this ${if (isEpisode) "show" else "movie"}.", note = true))
-                }
-                if (audio.isNotEmpty()) {
-                    add(PanelRow("AUDIO", header = true))
-                    audio.forEach { c -> add(PanelRow(c.label, selected = c.selected, onClick = c.apply)) }
-                }
-                if (versions.isNotEmpty()) {
-                    add(PanelRow("OTHER VERSIONS", header = true))
-                    versions.forEach { v -> add(PanelRow(v.label, onClick = { scope.launch { v.switch() }; panelOpen = false })) }
-                }
-                if (hasNext) {
-                    add(PanelRow("EPISODE", header = true))
-                    add(PanelRow("Next episode ▸", onClick = { panelOpen = false; nextNow() }))
-                }
-                add(PanelRow("PICTURE", header = true))
-                add(PanelRow("Aspect: ${fit.label}", onClick = { fit = Fit.entries[(fit.ordinal + 1) % Fit.entries.size] }))
             }
-            OptionsPanel(rows, onClose = { panelOpen = false }, modifier = Modifier.align(Alignment.CenterEnd))
+            val sign = if (subDelay > 0) "+" else ""
+            val timingRows = if (!extOn) emptyList() else listOf(
+                PanelRow("Now ${sign}${"%.2f".format(subDelay / 1000f)} s", note = true),
+                PanelRow("◀  Show earlier", onClick = { subDelay -= 250; app.prefs.setSubDelay(delayKey, subDelay) }, keepOpen = true),
+                PanelRow("▶  Show later", onClick = { subDelay += 250; app.prefs.setSubDelay(delayKey, subDelay) }, keepOpen = true),
+                PanelRow("Reset", onClick = { subDelay = 0; app.prefs.setSubDelay(delayKey, 0) }, keepOpen = true),
+            )
+            val moreRows = buildList {
+                add(PanelRow("Picture: ${fit.label}", onClick = { fit = Fit.entries[(fit.ordinal + 1) % Fit.entries.size] }, keepOpen = true))
+                if (hasNext) add(PanelRow("Next episode ▸", onClick = { panelOpen = false; nextNow() }))
+            }
+            AvPanel(
+                audio = audioRows,
+                subtitles = subRows,
+                timing = timingRows,
+                more = moreRows,
+                onClose = { panelOpen = false },
+                modifier = Modifier.align(Alignment.BottomCenter),
+            )
         }
 
         notice?.let { Toast(it, Modifier.align(Alignment.TopCenter).padding(top = S.safeY)) }
@@ -626,37 +599,50 @@ private fun trackChoices(player: ExoPlayer, tracks: Tracks): Pair<List<TrackChoi
     return audio to text
 }
 
+/** Netflix-style sheet: Audio | Subtitles | Timing | More, side by side; Left/Right moves between them. */
 @Composable
-private fun OptionsPanel(rows: List<PanelRow>, onClose: () -> Unit, modifier: Modifier) {
-    val first = remember { FocusRequester() }
-    LaunchedEffect(Unit) { runCatching { first.requestFocus() } }
-    val firstAction = rows.indexOfFirst { !it.header && !it.note }
-    LazyColumn(
-        modifier.width(380.dp).fillMaxHeight().background(C.bg100.copy(alpha = 0.97f))
-            .padding(start = S.s4, end = S.safeX - S.s4, top = S.safeY, bottom = S.safeY),
-        verticalArrangement = Arrangement.spacedBy(4.dp),
+private fun AvPanel(
+    audio: List<PanelRow>,
+    subtitles: List<PanelRow>,
+    timing: List<PanelRow>,
+    more: List<PanelRow>,
+    onClose: () -> Unit,
+    modifier: Modifier,
+) {
+    val start = remember { FocusRequester() }
+    LaunchedEffect(Unit) { runCatching { start.requestFocus() } }
+    Row(
+        modifier.fillMaxWidth()
+            .background(Brush.verticalGradient(listOf(Color.Transparent, C.bg000.copy(alpha = 0.92f), C.bg000)))
+            .padding(start = S.safeX, end = S.safeX, top = 70.dp, bottom = S.safeY),
+        horizontalArrangement = Arrangement.spacedBy(S.s6),
     ) {
-        items(rows.size) { i ->
-            val r = rows[i]
-            when {
-                r.header -> Txt(r.label, T.section, modifier = Modifier.padding(start = 12.dp, top = if (i == 0) 0.dp else S.s3, bottom = 4.dp))
-                r.note -> Txt(r.label, T.caption, color = C.inkFaint, maxLines = 3, modifier = Modifier.padding(horizontal = 12.dp))
-                else -> FocusRow(
-                    modifier = (if (i == firstAction) Modifier.focusRequester(first) else Modifier).onPreviewKeyEvent { ev ->
-                        if (ev.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
-                        when (ev.key) {
-                            Key.DirectionLeft -> r.onLeft?.let { it(); true } ?: false
-                            Key.DirectionRight -> r.onRight?.let { it(); true } ?: false
-                            else -> false
-                        }
-                    },
+        PanelColumn("Audio", audio, null, onClose, Modifier.weight(1f))
+        PanelColumn("Subtitles", subtitles, start, onClose, Modifier.weight(1.3f))
+        if (timing.isNotEmpty()) PanelColumn("Subtitle timing", timing, null, onClose, Modifier.weight(0.9f))
+        PanelColumn("More", more, null, onClose, Modifier.weight(0.8f))
+    }
+}
+
+@Composable
+private fun PanelColumn(title: String, rows: List<PanelRow>, focus: FocusRequester?, onClose: () -> Unit, modifier: Modifier) {
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Txt(title, T.title, modifier = Modifier.padding(start = 12.dp, bottom = 6.dp))
+        val target = rows.indexOfFirst { it.selected }.takeIf { it >= 0 } ?: rows.indexOfFirst { !it.note }
+        LazyColumn(Modifier.heightIn(max = 220.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            items(rows.size) { i ->
+                val r = rows[i]
+                if (r.note) Txt(r.label, T.caption, color = C.inkFaint, maxLines = 3, modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp))
+                else FocusRow(
+                    modifier = if (focus != null && i == target) Modifier.focusRequester(focus) else Modifier,
                     selected = r.selected,
-                    onClick = {
-                        r.onClick?.invoke()
-                        if (r.onLeft == null) onClose()
-                    },
-                ) {
-                    Txt((if (r.selected) "✓  " else "     ") + r.label, T.label, modifier = Modifier.padding(horizontal = 12.dp))
+                    height = 44.dp,
+                    onClick = { r.onClick?.invoke(); if (!r.keepOpen) onClose() },
+                ) { _ ->
+                    Row(Modifier.padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Txt(if (r.selected) "✓" else "", T.label, color = C.accent, modifier = Modifier.width(20.dp))
+                        Txt(r.label, T.label, color = if (r.selected) C.ink else C.inkMuted)
+                    }
                 }
             }
         }

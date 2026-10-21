@@ -28,6 +28,14 @@ class VodTest {
         assertEquals("Arabic subtitles", VodNaming.sourceDescription("AR SUBS"))
     }
 
+    @Test fun versionLabels() {
+        assertEquals("Arabic subtitles", dev.k3be.restv.ui.vod.versionTitle("AR-SUBS - Dune", null))
+        assertEquals("Netflix Movies", dev.k3be.restv.ui.vod.versionTitle("Dune", "Netflix Movies"))
+        assertEquals("English", dev.k3be.restv.ui.vod.versionTitle("Dune", "EN | Netflix Movies"))
+        assertEquals("Standard", dev.k3be.restv.ui.vod.versionTitle("Dune", null))
+        assertEquals("EN  ·  4K  ·  MKV  ·  Netflix Movies", dev.k3be.restv.ui.vod.versionDetail("Dune", 3, "mkv", "EN | Netflix Movies"))
+    }
+
     @Test fun keysMatchAcrossSources() {
         assertEquals(VodNaming.key("The Godfather"), VodNaming.key("Godfather"))
         assertEquals(VodNaming.key("Amélie"), VodNaming.key("Amelie"))

@@ -86,6 +86,15 @@ class VodScreenTest {
         rule.waitForIdle()
     }
 
+    @Test fun movieDetailRenders() {
+        val (_, session) = start()
+        rule.setContent { dev.k3be.restv.ui.vod.MovieDetailScreen(session, 1) { _, _, _ -> } }
+        rule.waitForIdle()
+        Thread.sleep(2000)
+        rule.mainClock.advanceTimeBy(3000)
+        rule.waitForIdle()
+    }
+
     @Test fun seriesDetailRenders() {
         val (_, session) = start()
         rule.setContent { SeriesDetailScreen(session, 1) { _, _, _ -> } }

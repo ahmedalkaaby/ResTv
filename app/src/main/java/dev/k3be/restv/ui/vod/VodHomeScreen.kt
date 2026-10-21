@@ -84,7 +84,7 @@ fun VodHomeScreen(
     Box(Modifier.fillMaxSize()) {
         VodHeroBackdrop(vm)
         Column(Modifier.fillMaxSize()) {
-            TopBar(tab, onNavigate)
+            TopBar(tab, onNavigate, autoHide = count != null && count!! > 0)
             when {
                 count == null -> {}
                 count == 0 -> FirstDownload(kind, sync, firstFocus, onDownload)
@@ -144,12 +144,7 @@ fun OneRailAtATime(
     val listState = rememberLazyListState()
     val start = remember { restore }
     var restored by remember { mutableStateOf(false) }
-    LazyColumn(
-        state = listState,
-        userScrollEnabled = false,
-        modifier = Modifier.fillMaxWidth().height(RAIL_H),
-    ) {
-        items(rails.size, key = { rails[it].id }) { i ->
+    BrowseRows(count = rails.size, key = { rails[it].id }, state = listState) { i ->
             val rail = rails[i]
             LaunchedEffect(rail.id) { onRailShown(rail.id) }
             val restoreId = start?.takeIf { it.startsWith("${rail.id}|") }?.substringAfter('|')?.toLongOrNull()
@@ -162,9 +157,7 @@ fun OneRailAtATime(
                 onClick = onClick,
                 onLongClick = onLongClick,
                 onSeeAll = onSeeAll(rail),
-                nextTitle = rails.getOrNull(i + 1)?.title,
             )
-        }
     }
 }
 
