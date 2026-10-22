@@ -54,14 +54,21 @@ class Artwork(
         val k = key(kind, title, year)
         mem[k]?.let { return@withContext it }
         if (k in misses) return@withContext Art(fallbackBackdrop, null)
+        var fromTmdb: Art? = null
         val art = gate.withPermit {
             val tmdbKey = prefs.tmdbKey()
-            val fromTmdb = if (tmdbKey != null) runCatching { tmdb(tmdbKey, kind, title, year) }.getOrNull() else null
+            fromTmdb = if (tmdbKey != null) runCatching { tmdb(tmdbKey, kind, title, year) }
+                .onFailure { lastError = "Couldn't reach TMDB (${it.javaClass.simpleName})" }.getOrNull() else null
+            if (fromTmdb != null) found++
             fromTmdb?.takeIf { it.backdrop != null || it.logo != null }
                 ?: Art(fallbackBackdrop ?: providerBackdrop(kind, id), null)
         }
-        if (art.backdrop == null && art.logo == null) misses += k
-        else { mem[k] = art; save() }
+        when {
+            // Only TMDB's answers are kept on disk; a fallback is retried next launch.
+            fromTmdb != null && (art.backdrop != null || art.logo != null) -> { mem[k] = art; save() }
+            art.backdrop == null -> misses += k
+            else -> mem[k] = art
+        }
         art
     }
 
@@ -74,18 +81,22 @@ class Artwork(
 
     private fun tmdb(key: String, kind: String, title: String, year: Int?): Art? {
         val type = if (kind == "movie") "movie" else "tv"
-        val search = "$apiBase/search/$type".toHttpUrl().newBuilder()
-            .addQueryParameter("api_key", key)
-            .addQueryParameter("query", title)
-            .apply { if (year != null) addQueryParameter(if (type == "movie") "year" else "first_air_date_year", year.toString()) }
-            .build()
-        val results = getJson(search.toString())?.get("results") as? JsonArray ?: return null
+        fun search(withYear: Boolean): JsonArray? {
+            val url = "$apiBase/search/$type".toHttpUrl().newBuilder()
+                .withKey(key)
+                .addQueryParameter("query", title)
+                .apply { if (withYear && year != null) addQueryParameter(if (type == "movie") "year" else "first_air_date_year", year.toString()) }
+                .build()
+            return getJson(url.toString(), key)?.get("results") as? JsonArray
+        }
+        // The provider's year is sometimes off by one or missing: retry without it before giving up.
+        val results = search(true)?.takeIf { it.isNotEmpty() } ?: (if (year != null) search(false) else null) ?: return null
         val id = (results.firstOrNull() as? JsonObject)?.get("id")?.let { (it as? JsonPrimitive)?.content } ?: return null
         val images = "$apiBase/$type/$id/images".toHttpUrl().newBuilder()
-            .addQueryParameter("api_key", key)
+            .withKey(key)
             .addQueryParameter("include_image_language", "en,null,ar")
             .build()
-        val root = getJson(images.toString()) ?: return null
+        val root = getJson(images.toString(), key) ?: return null
         fun pick(arrKey: String, langs: List<String?>): String? {
             val list = (root[arrKey] as? JsonArray)?.mapNotNull { it as? JsonObject }.orEmpty()
             for (lang in langs) {
@@ -101,9 +112,49 @@ class Artwork(
         return Art(backdrop, logo)
     }
 
-    private fun getJson(url: String): JsonObject? = http.newCall(Request.Builder().url(url).build()).execute().use { r ->
-        if (!r.isSuccessful) return null
+    /**
+     * TMDB gives two credentials: the short "API Key" (sent as ?api_key=) and the long
+     * "API Read Access Token" (starts with eyJ, sent as a Bearer header). Either works here.
+     */
+    private fun isToken(key: String) = key.startsWith("eyJ")
+
+    private fun okhttp3.HttpUrl.Builder.withKey(key: String) = apply { if (!isToken(key)) addQueryParameter("api_key", key) }
+
+    private fun request(url: String, key: String) = Request.Builder().url(url)
+        .apply { if (isToken(key)) header("Authorization", "Bearer $key") }
+        .header("Accept", "application/json")
+        .build()
+
+    private fun getJson(url: String, key: String): JsonObject? = http.newCall(request(url, key)).execute().use { r ->
+        if (r.code == 401) { lastError = "TMDB rejected the key"; return null }
+        if (!r.isSuccessful) { lastError = "TMDB answered ${r.code}"; return null }
+        lastError = null
         runCatching { json.parseToJsonElement(r.body?.string().orEmpty()).jsonObject }.getOrNull()
+    }
+
+    /** Why the last TMDB lookup failed, if it did. */
+    @Volatile var lastError: String? = null
+
+    /** Titles TMDB answered for in this session, and how many have a logo on file. */
+    @Volatile var found = 0
+    fun logoCount(): Int { ensureLoaded(); return mem.values.count { it.logo != null } }
+
+    /** Null when the key works; otherwise what's wrong, in plain words. */
+    suspend fun check(key: String): String? = withContext(Dispatchers.IO) {
+        val k = key.trim()
+        if (k.isEmpty()) return@withContext "No key entered"
+        val url = "$apiBase/configuration".toHttpUrl().newBuilder().withKey(k).build().toString()
+        try {
+            http.newCall(request(url, k)).execute().use { r ->
+                when {
+                    r.isSuccessful -> null
+                    r.code == 401 -> "TMDB says this key isn't valid. Copy the API Key (or the API Read Access Token) again."
+                    else -> "TMDB answered ${r.code}"
+                }
+            }
+        } catch (e: Exception) {
+            "Couldn't reach TMDB from this TV (${e.javaClass.simpleName}). The internet connection or a block may be the cause."
+        }
     }
 
     private fun key(kind: String, title: String, year: Int?) = "$kind|${VodNaming.key(title)}|${year ?: ""}"

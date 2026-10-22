@@ -50,26 +50,31 @@ import dev.k3be.restv.ui.theme.T
 val POSTER_W = 104.dp
 val POSTER_H = 156.dp
 
-/** Full-bleed artwork behind a screen, fading into the background on the left and bottom. */
+/**
+ * Full-screen artwork behind a screen. The whole picture shows; a soft shade on the left keeps the
+ * title readable and a fade at the bottom sits under the rows. (The size parameters are kept for
+ * callers but the picture always fills the screen.)
+ */
 @Composable
-fun Backdrop(url: String?, modifier: Modifier = Modifier, widthFraction: Float = 0.72f, heightFraction: Float = 0.7f) {
+@Suppress("UNUSED_PARAMETER")
+fun Backdrop(url: String?, modifier: Modifier = Modifier, widthFraction: Float = 1f, heightFraction: Float = 1f) {
     Box(modifier.fillMaxSize()) {
         if (url != null) {
             AsyncImage(
                 model = url,
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
-                modifier = Modifier.align(Alignment.TopEnd).fillMaxWidth(widthFraction).fillMaxSize(heightFraction),
+                modifier = Modifier.fillMaxSize(),
             )
         }
         Box(
             Modifier.fillMaxSize().background(
-                Brush.horizontalGradient(0f to C.bg000, 0.32f to C.bg000.copy(alpha = 0.92f), 0.62f to C.bg000.copy(alpha = 0.35f), 1f to Color.Transparent)
+                Brush.horizontalGradient(0f to C.bg000.copy(alpha = 0.88f), 0.38f to C.bg000.copy(alpha = 0.55f), 0.65f to Color.Transparent)
             )
         )
         Box(
             Modifier.fillMaxSize().background(
-                Brush.verticalGradient(0f to Color.Transparent, 0.45f to C.bg000.copy(alpha = 0.55f), 0.72f to C.bg000)
+                Brush.verticalGradient(0f to C.bg000.copy(alpha = 0.35f), 0.18f to Color.Transparent, 0.5f to Color.Transparent, 0.78f to C.bg000.copy(alpha = 0.85f), 1f to C.bg000)
             )
         )
     }

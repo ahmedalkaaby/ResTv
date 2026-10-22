@@ -49,4 +49,43 @@ class ArtworkTest {
         assertEquals(2, server.requestCount)
         server.shutdown()
     }
+
+    @Test fun keyCheckSaysWhatIsWrong() = runBlocking {
+        val server = MockWebServer()
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                val good = request.requestUrl!!.queryParameter("api_key") == "GOOD"
+                return if (good) MockResponse().setBody("{}") else MockResponse().setResponseCode(401).setBody("{}")
+            }
+        }
+        server.start()
+        val app = ApplicationProvider.getApplicationContext<RestvApp>()
+        val art = Artwork(app.http, app.json, File(app.filesDir, "a2"), app.prefs, app.vod, server.url("/3").toString().trimEnd('/'))
+        assertEquals(null, art.check("GOOD"))
+        assertTrue(art.check("BAD")!!.contains("isn't valid"))
+        server.shutdown()
+        // Nothing listening: reported as unreachable, not as a bad key.
+        assertTrue(art.check("GOOD")!!.startsWith("Couldn't reach TMDB"))
+    }
+
+    @Test fun retriesWithoutYear() = runBlocking {
+        val server = MockWebServer()
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                val u = request.requestUrl!!
+                return MockResponse().setBody(when {
+                    u.encodedPath.endsWith("/search/tv") && u.queryParameter("first_air_date_year") != null -> """{"results":[]}"""
+                    u.encodedPath.endsWith("/search/tv") -> """{"results":[{"id":1399}]}"""
+                    u.encodedPath.endsWith("/tv/1399/images") -> """{"backdrops":[],"logos":[{"file_path":"/got.png","iso_639_1":"en"}]}"""
+                    else -> "{}"
+                })
+            }
+        }
+        server.start()
+        val app = ApplicationProvider.getApplicationContext<RestvApp>()
+        app.prefs.setTmdbKey("KEY")
+        val art = Artwork(app.http, app.json, File(app.filesDir, "a3").apply { deleteRecursively(); mkdirs() }, app.prefs, app.vod, server.url("/3").toString().trimEnd('/'))
+        assertEquals("https://image.tmdb.org/t/p/w500/got.png", art.get("series", 5, "Game of Thrones", 2012).logo)
+        server.shutdown()
+    }
 }

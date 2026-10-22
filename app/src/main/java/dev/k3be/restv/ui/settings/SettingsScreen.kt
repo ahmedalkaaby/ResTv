@@ -119,6 +119,7 @@ fun SettingsScreen(session: Session, sync: SyncState, onSync: () -> Unit, onNavi
                     label = "SubDL API key",
                     current = app.prefs.subdlKey(),
                     onSave = { app.prefs.setSubdlKey(it) },
+                    check = { app.subdl.check(it) },
                 )
                 Section.Artwork -> SecretPane(
                     title = "Artwork & logos · TMDB",
@@ -126,6 +127,14 @@ fun SettingsScreen(session: Session, sync: SyncState, onSync: () -> Unit, onNavi
                     label = "TMDB API key",
                     current = app.prefs.tmdbKey(),
                     onSave = { app.prefs.setTmdbKey(it); app.art.reset() },
+                    check = { app.art.check(it) },
+                    extra = {
+                        val logos = remember { app.art.logoCount() }
+                        Txt(
+                            "Logos saved so far: $logos" + (app.art.lastError?.let { " · last problem: $it" } ?: ""),
+                            T.caption, color = if (app.art.lastError != null) C.danger else C.inkFaint, maxLines = 2,
+                        )
+                    },
                 )
                 Section.Commentary -> SecretPane(
                     title = "Commentary audio",
@@ -222,29 +231,72 @@ private fun AccountPane(app: RestvApp, session: Session, sync: SyncState, onSync
     if (sync is SyncState.Failed) Txt(sync.message, T.caption, color = C.danger, maxLines = 2)
 }
 
-/** A saved value shown as ••••abcd; the text field only appears after "Change". */
+private sealed interface KeyHealth {
+    data object Unknown : KeyHealth
+    data object Checking : KeyHealth
+    data object Ok : KeyHealth
+    data class Bad(val why: String) : KeyHealth
+}
+
+/**
+ * A saved value shown as ••••abcd; the text field only appears after "Change". With [check], the key is
+ * tested right after saving, and "Check" tests it again any time.
+ */
 @Composable
-private fun SecretPane(title: String, help: String, label: String, current: String?, onSave: (String) -> Unit) {
+private fun SecretPane(
+    title: String,
+    help: String,
+    label: String,
+    current: String?,
+    onSave: (String) -> Unit,
+    check: (suspend (String) -> String?)? = null,
+    extra: (@Composable () -> Unit)? = null,
+) {
     val pane = LocalPane.current
+    val scope = rememberCoroutineScope()
     val field = remember { FocusRequester() }
     var editing by remember(title) { mutableStateOf(false) }
-    // Opening the field puts the cursor in it; closing it goes back to the button.
     var opened by remember(title) { mutableStateOf(false) }
+    var value by remember(title) { mutableStateOf(current ?: "") }
+    var saved by remember(title) { mutableStateOf(current) }
+    var health by remember(title) { mutableStateOf<KeyHealth>(KeyHealth.Unknown) }
+    fun runCheck() {
+        val k = saved ?: return
+        val c = check ?: return
+        scope.launch {
+            health = KeyHealth.Checking
+            health = c(k)?.let { KeyHealth.Bad(it) } ?: KeyHealth.Ok
+        }
+    }
     LaunchedEffect(editing) {
         if (editing) { opened = true; runCatching { field.requestFocus() } }
         else if (opened) runCatching { pane.primary.requestFocus() }
     }
-    var value by remember(title) { mutableStateOf(current ?: "") }
-    var saved by remember(title) { mutableStateOf(current) }
     Txt(title, T.titleLg)
     Txt(help, T.body, color = C.inkMuted, maxLines = 4)
     if (!editing) {
         Txt(saved?.let { "$label:  ••••••${it.takeLast(4)}" } ?: "$label: not set", T.bodyLg, color = if (saved == null) C.inkFaint else C.ink)
-        TvButton(if (saved == null) "Add" else "Change", primary = saved == null, modifier = Modifier.focusRequester(pane.primary).then(pane.back)) { editing = true }
+        when (val h = health) {
+            KeyHealth.Unknown -> {}
+            KeyHealth.Checking -> Txt("Checking the key…", T.body, color = C.inkMuted)
+            KeyHealth.Ok -> Txt("✓ Working", T.label, color = C.success)
+            is KeyHealth.Bad -> Txt("✗ ${h.why}", T.body, color = C.danger, maxLines = 3)
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(S.s2)) {
+            TvButton(if (saved == null) "Add" else "Change", primary = saved == null, modifier = Modifier.focusRequester(pane.primary).then(pane.back)) { editing = true }
+            if (check != null && saved != null) TvButton(if (health == KeyHealth.Checking) "Checking…" else "Check") { runCheck() }
+        }
+        extra?.invoke()
     } else {
         Column(Modifier.width(460.dp)) { TvTextField(label, value, { value = it }, Modifier.focusRequester(field).then(pane.back)) }
         Row(horizontalArrangement = Arrangement.spacedBy(S.s2), verticalAlignment = Alignment.CenterVertically) {
-            TvButton("Save", primary = true, modifier = pane.back) { onSave(value); saved = value.trim().ifEmpty { null }; editing = false }
+            TvButton("Save", primary = true, modifier = pane.back) {
+                onSave(value)
+                saved = value.trim().ifEmpty { null }
+                editing = false
+                // A new key is tested straight away.
+                if (saved != null) runCheck() else health = KeyHealth.Unknown
+            }
             TvButton("Cancel") { value = saved ?: ""; editing = false }
         }
     }

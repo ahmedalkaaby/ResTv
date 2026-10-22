@@ -107,6 +107,30 @@ class SubDl(
         out.distinctBy { it.url }.sortedBy { it.hearingImpaired }
     }
 
+    /** Null when the key works; otherwise what's wrong, in plain words. */
+    suspend fun check(key: String): String? = withContext(Dispatchers.IO) {
+        val k = key.trim()
+        if (k.isEmpty()) return@withContext "No key entered"
+        val url = "$apiBase/api/v1/subtitles".toHttpUrl().newBuilder()
+            .addQueryParameter("api_key", k).addQueryParameter("film_name", "Inception")
+            .addQueryParameter("type", "movie").addQueryParameter("languages", "AR").build()
+        try {
+            http.newCall(Request.Builder().url(url).build()).execute().use { r ->
+                val body = r.body?.string().orEmpty()
+                val root = runCatching { json.parseToJsonElement(body).jsonObject }.getOrNull()
+                val ok = (root?.get("status") as? JsonPrimitive)?.content == "true"
+                when {
+                    ok -> null
+                    r.code == 401 || r.code == 403 -> "SubDL says this key isn't valid."
+                    root != null -> "SubDL: " + ((root["error"] as? JsonPrimitive)?.content ?: "the key didn't work")
+                    else -> "SubDL answered ${r.code}"
+                }
+            }
+        } catch (e: Exception) {
+            "Couldn't reach SubDL from this TV (${e.javaClass.simpleName})."
+        }
+    }
+
     /** Downloads (once) and parses a subtitle; [q] picks the episode out of a season pack. */
     suspend fun cues(option: SubOption, q: SubQuery): List<Cue> = withContext(Dispatchers.IO) {
         val dir = File(cacheDir, "subs").apply { mkdirs() }
