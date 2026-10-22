@@ -14,6 +14,14 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
@@ -52,6 +60,15 @@ private sealed interface UpdateState {
     data class Error(val message: String) : UpdateState
 }
 
+/**
+ * How focus moves on this page: Right from the list goes to the pane's main control ([primary]);
+ * Left from a pane's first control returns to the list ([back]). Explicit, so the floating top bar
+ * never steals the move.
+ */
+private class PaneFocus(val primary: FocusRequester, val back: Modifier)
+
+private val LocalPane = staticCompositionLocalOf { PaneFocus(FocusRequester(), Modifier) }
+
 private enum class Section(val label: String) {
     Updates("Updates"),
     Account("Account & library"),
@@ -67,15 +84,21 @@ private enum class Section(val label: String) {
 fun SettingsScreen(session: Session, sync: SyncState, onSync: () -> Unit, onNavigate: (SidebarItem) -> Unit) {
     val app = LocalContext.current.applicationContext as RestvApp
     var section by rememberSaveable { mutableStateOf(Section.Updates) }
-    val first = remember { FocusRequester() }
-    LaunchedEffect(Unit) { runCatching { first.requestFocus() } }
+    val rows = remember { Section.entries.associateWith { FocusRequester() } }
+    val primary = remember { FocusRequester() }
+    LaunchedEffect(Unit) { runCatching { rows.getValue(Section.Updates).requestFocus() } }
+    val pane = PaneFocus(primary, Modifier.focusProperties { left = rows.getValue(section) })
 
     NavScaffold(active = SidebarItem.Settings, onSelect = onNavigate) {
         Column(Modifier.width(250.dp).fillMaxHeight().padding(top = S.safeY), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Txt("Settings", T.titleLg, modifier = Modifier.padding(start = 12.dp, bottom = S.s3))
             Section.entries.forEach { s ->
                 FocusRow(
-                    modifier = if (s == Section.Updates) Modifier.focusRequester(first) else Modifier,
+                    modifier = Modifier.focusRequester(rows.getValue(s)).onPreviewKeyEvent { ev ->
+                        if (ev.type == KeyEventType.KeyDown && ev.key == Key.DirectionRight) {
+                            runCatching { primary.requestFocus() }; true
+                        } else false
+                    },
                     selected = s == section,
                     height = 46.dp,
                     onFocused = { section = s },
@@ -87,7 +110,7 @@ fun SettingsScreen(session: Session, sync: SyncState, onSync: () -> Unit, onNavi
             Modifier.weight(1f).fillMaxHeight().padding(start = S.s8, top = S.safeY + 46.dp, end = S.safeX),
             verticalArrangement = Arrangement.spacedBy(S.s3),
         ) {
-            when (section) {
+            CompositionLocalProvider(LocalPane provides pane) { when (section) {
                 Section.Updates -> UpdatesPane(app)
                 Section.Account -> AccountPane(app, session, sync, onSync)
                 Section.Subtitles -> SecretPane(
@@ -113,13 +136,15 @@ fun SettingsScreen(session: Session, sync: SyncState, onSync: () -> Unit, onNavi
                 )
                 Section.Player -> PlayerPane(app)
                 Section.Matches -> MatchesPane(app)
-            }
+            } }
         }
     }
 }
 
 @Composable
 private fun UpdatesPane(app: RestvApp) {
+    val pane = LocalPane.current
+    val main = Modifier.focusRequester(pane.primary).then(pane.back)
     val scope = rememberCoroutineScope()
     var update by remember { mutableStateOf<UpdateState>(UpdateState.Idle) }
     fun check() {
@@ -156,11 +181,14 @@ private fun UpdatesPane(app: RestvApp) {
     Txt(line, T.bodyLg, color = color)
     Row(horizontalArrangement = Arrangement.spacedBy(S.s2)) {
         when (val u = update) {
-            is UpdateState.Available -> TvButton("Update now", primary = true, icon = Icons.download) { install(u.release) }
-            is UpdateState.Downloading -> TvButton("Downloading…", enabled = false) {}
-            else -> TvButton("Check for updates", primary = true, onClick = ::check)
+            is UpdateState.Available -> TvButton("Update now", primary = true, icon = Icons.download, modifier = main) { install(u.release) }
+            is UpdateState.Downloading -> TvButton("Downloading…", enabled = false, modifier = main) {}
+            else -> TvButton("Check for updates", primary = true, modifier = main, onClick = ::check)
         }
     }
+    // The button changes as the check runs; keep focus on whichever one is showing.
+    var touched by remember { mutableStateOf(false) }
+    LaunchedEffect(update) { if (update != UpdateState.Idle) touched = true; if (touched) runCatching { pane.primary.requestFocus() } }
     if (app.updater.needsInstallPermission() && update is UpdateState.Available) {
         Txt("First time only: allow Restv to install apps, then press Update again.", T.caption, color = C.inkFaint, maxLines = 2)
     }
@@ -183,6 +211,7 @@ private fun AccountPane(app: RestvApp, session: Session, sync: SyncState, onSync
     )
     Row(horizontalArrangement = Arrangement.spacedBy(S.s2)) {
         TvButton(
+            modifier = Modifier.focusRequester(LocalPane.current.primary).then(LocalPane.current.back),
             text = if (sync is SyncState.Running) sync.message else "Update now",
             icon = Icons.sync,
             enabled = sync !is SyncState.Running,
@@ -196,18 +225,26 @@ private fun AccountPane(app: RestvApp, session: Session, sync: SyncState, onSync
 /** A saved value shown as ••••abcd; the text field only appears after "Change". */
 @Composable
 private fun SecretPane(title: String, help: String, label: String, current: String?, onSave: (String) -> Unit) {
+    val pane = LocalPane.current
+    val field = remember { FocusRequester() }
     var editing by remember(title) { mutableStateOf(false) }
+    // Opening the field puts the cursor in it; closing it goes back to the button.
+    var opened by remember(title) { mutableStateOf(false) }
+    LaunchedEffect(editing) {
+        if (editing) { opened = true; runCatching { field.requestFocus() } }
+        else if (opened) runCatching { pane.primary.requestFocus() }
+    }
     var value by remember(title) { mutableStateOf(current ?: "") }
     var saved by remember(title) { mutableStateOf(current) }
     Txt(title, T.titleLg)
     Txt(help, T.body, color = C.inkMuted, maxLines = 4)
     if (!editing) {
         Txt(saved?.let { "$label:  ••••••${it.takeLast(4)}" } ?: "$label: not set", T.bodyLg, color = if (saved == null) C.inkFaint else C.ink)
-        TvButton(if (saved == null) "Add" else "Change", primary = saved == null) { editing = true }
+        TvButton(if (saved == null) "Add" else "Change", primary = saved == null, modifier = Modifier.focusRequester(pane.primary).then(pane.back)) { editing = true }
     } else {
-        Column(Modifier.width(460.dp)) { TvTextField(label, value, { value = it }) }
+        Column(Modifier.width(460.dp)) { TvTextField(label, value, { value = it }, Modifier.focusRequester(field).then(pane.back)) }
         Row(horizontalArrangement = Arrangement.spacedBy(S.s2), verticalAlignment = Alignment.CenterVertically) {
-            TvButton("Save", primary = true) { onSave(value); saved = value.trim().ifEmpty { null }; editing = false }
+            TvButton("Save", primary = true, modifier = pane.back) { onSave(value); saved = value.trim().ifEmpty { null }; editing = false }
             TvButton("Cancel") { value = saved ?: ""; editing = false }
         }
     }
@@ -220,8 +257,9 @@ private fun PlayerPane(app: RestvApp) {
     Txt("Player", T.titleLg)
     Txt("Some providers treat unknown players differently. If channels keep dropping, try the VLC identity.", T.body, color = C.inkMuted, maxLines = 2)
     Row(horizontalArrangement = Arrangement.spacedBy(S.s2)) {
-        Prefs.Agent.entries.forEach { a ->
+        Prefs.Agent.entries.forEachIndexed { i, a ->
             TvButton(
+                modifier = if (i == 0) Modifier.focusRequester(LocalPane.current.primary).then(LocalPane.current.back) else Modifier,
                 text = (if (a == agent) "✓ " else "") + "Identify as ${a.label}",
                 primary = a == agent,
                 onClick = { app.prefs.setAgent(a) },
@@ -233,21 +271,28 @@ private fun PlayerPane(app: RestvApp) {
 
 @Composable
 private fun MatchesPane(app: RestvApp) {
+    val pane = LocalPane.current
+    val field = remember { FocusRequester() }
     var editing by remember { mutableStateOf(false) }
+    var opened by remember { mutableStateOf(false) }
+    LaunchedEffect(editing) {
+        if (editing) { opened = true; runCatching { field.requestFocus() } }
+        else if (opened) runCatching { pane.primary.requestFocus() }
+    }
     var url by remember { mutableStateOf(app.prefs.matchesUrl() ?: "") }
     var key by remember { mutableStateOf(app.prefs.matchesKey() ?: "") }
     Txt("Matches server (optional)", T.titleLg)
     Txt("Matches load directly on this TV. Your server is only used if that fails.", T.body, color = C.inkMuted, maxLines = 2)
     if (!editing) {
         Txt(url.ifBlank { "Not set" }, T.bodyLg, color = if (url.isBlank()) C.inkFaint else C.ink)
-        TvButton(if (url.isBlank()) "Add" else "Change") { editing = true }
+        TvButton(if (url.isBlank()) "Add" else "Change", modifier = Modifier.focusRequester(pane.primary).then(pane.back)) { editing = true }
     } else {
         Column(Modifier.width(460.dp), verticalArrangement = Arrangement.spacedBy(S.s2)) {
-            TvTextField("Server URL", url, { url = it })
-            TvTextField("Key", key, { key = it }, password = true)
+            TvTextField("Server URL", url, { url = it }, Modifier.focusRequester(field).then(pane.back))
+            TvTextField("Key", key, { key = it }, pane.back, password = true)
         }
         Row(horizontalArrangement = Arrangement.spacedBy(S.s2)) {
-            TvButton("Save", primary = true) { app.prefs.setMatchesServer(url, key); editing = false }
+            TvButton("Save", primary = true, modifier = pane.back) { app.prefs.setMatchesServer(url, key); editing = false }
             TvButton("Cancel") { url = app.prefs.matchesUrl() ?: ""; key = app.prefs.matchesKey() ?: ""; editing = false }
         }
     }

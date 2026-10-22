@@ -19,6 +19,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalContext
@@ -88,6 +93,7 @@ fun MatchesScreen(
     var rows by remember { mutableStateOf<List<ChannelRow>>(emptyList()) }
     val covered = remember { mutableStateMapOf<String, MatchesRepo.Coverage>() }
     var looking by remember { mutableStateOf(false) }
+    var gridTarget by remember { mutableStateOf<Long?>(null) }
     val firstMatch = remember { FocusRequester() }
     val gridState = rememberLazyGridState()
 
@@ -180,7 +186,13 @@ fun MatchesScreen(
                                         awayLogo = c?.awayLogo ?: app.matches.logoFor(m, home = false),
                                         coverage = c,
                                         selected = selected?.id == m.id,
-                                        modifier = if (m.id == firstId) Modifier.focusRequester(firstMatch) else Modifier,
+                                        modifier = (if (m.id == firstId) Modifier.focusRequester(firstMatch) else Modifier)
+                                            // Right goes to this match's channels, never up to the top bar.
+                                            .onPreviewKeyEvent { ev ->
+                                                if (ev.type == KeyEventType.KeyDown && ev.key == Key.DirectionRight) {
+                                                    rows.firstOrNull()?.let { gridTarget = it.streamId }; true
+                                                } else false
+                                            },
                                     ) { selected = m }
                                 }
                             }
@@ -222,8 +234,8 @@ fun MatchesScreen(
                     favorites = favs,
                     nowTitles = emptyMap(),
                     state = gridState,
-                    focusTarget = null,
-                    onFocusTargetConsumed = {},
+                    focusTarget = gridTarget,
+                    onFocusTargetConsumed = { gridTarget = null },
                     onFocus = {},
                     onPlay = { i -> onPlay(rows, i) },
                     onLongPress = { i -> live.toggleFavorite(rows[i].main) },

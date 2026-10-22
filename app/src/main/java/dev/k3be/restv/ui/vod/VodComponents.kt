@@ -86,8 +86,11 @@ val RAIL_H = WIDE_H + 58.dp
 fun rememberArt(card: VodCard?): dev.k3be.restv.data.Art? {
     if (card == null || card.kind == "platform") return null
     val app = androidx.compose.ui.platform.LocalContext.current.applicationContext as dev.k3be.restv.RestvApp
-    val initial = remember(card.kind, card.id) { app.art.peek(card.kind, card.title, card.year) }
-    val state = androidx.compose.runtime.produceState(initial, card.kind, card.id) {
+    // Keyed on the title: when focus moves on, the previous title's artwork must not linger.
+    val state = androidx.compose.runtime.produceState<dev.k3be.restv.data.Art?>(
+        app.art.peek(card.kind, card.title, card.year), card.kind, card.id,
+    ) {
+        value = app.art.peek(card.kind, card.title, card.year)
         if (value == null) value = app.art.get(card.kind, card.id, card.title, card.year, card.backdrop)
     }
     return state.value
