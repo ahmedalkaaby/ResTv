@@ -33,6 +33,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.foundation.border
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Brush
@@ -361,10 +363,15 @@ private fun ChannelListPanel(
     LaunchedEffect(rows) { runCatching { current.requestFocus() } }
     Column(
         modifier
-            .width(400.dp)
+            // Floating panel: inset from the edges, rounded, see-through.
+            .padding(start = 20.dp, top = 20.dp, bottom = 20.dp)
+            .width(380.dp)
             .fillMaxHeight()
-            .background(C.bg100.copy(alpha = 0.96f))
-            .padding(start = S.safeX - S.s4, end = S.s4, top = S.safeY, bottom = S.safeY),
+            .shadow(24.dp, RoundedCornerShape(S.radiusLg), clip = false)
+            .clip(RoundedCornerShape(S.radiusLg))
+            .background(C.bg100.copy(alpha = 0.86f))
+            .border(1.dp, C.ink.copy(alpha = 0.08f), RoundedCornerShape(S.radiusLg))
+            .padding(start = S.s4, end = S.s4, top = S.s4, bottom = S.s4),
         verticalArrangement = Arrangement.spacedBy(S.s2),
     ) {
         Txt(title, T.title, modifier = Modifier.padding(start = 12.dp))
@@ -417,10 +424,15 @@ private fun CategoryBrowserPanel(
     LaunchedEffect(Unit) { runCatching { current.requestFocus() } }
     Column(
         modifier
-            .width(400.dp)
+            // Floating panel: inset from the edges, rounded, see-through.
+            .padding(start = 20.dp, top = 20.dp, bottom = 20.dp)
+            .width(380.dp)
             .fillMaxHeight()
-            .background(C.bg100.copy(alpha = 0.97f))
-            .padding(start = S.safeX - S.s4, end = S.s4, top = S.safeY, bottom = S.safeY),
+            .shadow(24.dp, RoundedCornerShape(S.radiusLg), clip = false)
+            .clip(RoundedCornerShape(S.radiusLg))
+            .background(C.bg100.copy(alpha = 0.86f))
+            .border(1.dp, C.ink.copy(alpha = 0.08f), RoundedCornerShape(S.radiusLg))
+            .padding(start = S.s4, end = S.s4, top = S.s4, bottom = S.s4),
         verticalArrangement = Arrangement.spacedBy(S.s2),
     ) {
         Txt("Categories", T.title, modifier = Modifier.padding(start = 12.dp))

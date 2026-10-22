@@ -75,8 +75,94 @@ fun Backdrop(url: String?, modifier: Modifier = Modifier, widthFraction: Float =
     }
 }
 
-/** Height of one rail: header, posters and room for the focus lift. */
-val RAIL_H = POSTER_H + 58.dp
+val WIDE_W = 236.dp
+val WIDE_H = 133.dp
+
+/** Height of one rail of wide cards: header, cards and room for the focus lift. */
+val RAIL_H = WIDE_H + 58.dp
+
+/** Artwork for a card: from the disk cache at once, otherwise looked up (TMDB or the provider). */
+@Composable
+fun rememberArt(card: VodCard?): dev.k3be.restv.data.Art? {
+    if (card == null || card.kind == "platform") return null
+    val app = androidx.compose.ui.platform.LocalContext.current.applicationContext as dev.k3be.restv.RestvApp
+    val initial = remember(card.kind, card.id) { app.art.peek(card.kind, card.title, card.year) }
+    val state = androidx.compose.runtime.produceState(initial, card.kind, card.id) {
+        if (value == null) value = app.art.get(card.kind, card.id, card.title, card.year, card.backdrop)
+    }
+    return state.value
+}
+
+/** Apple TV-style landscape card: artwork, the title's logo (or name) and progress. */
+@Composable
+fun WideCard(
+    card: VodCard,
+    modifier: Modifier = Modifier,
+    requestFocus: Boolean = false,
+    onFocus: () -> Unit,
+    onClick: () -> Unit,
+    onLongClick: () -> Unit,
+) {
+    val source = remember { MutableInteractionSource() }
+    val focused by source.collectIsFocusedAsState()
+    val fr = remember { FocusRequester() }
+    if (focused) LaunchedEffect(Unit) { onFocus() }
+    if (requestFocus) LaunchedEffect(Unit) { runCatching { fr.requestFocus() } }
+    val scale by animateFloatAsState(if (focused) 1.06f else 1f, tween(90), label = "wide")
+    val shape = RoundedCornerShape(S.radiusMd)
+    Box(
+        modifier
+            .size(WIDE_W, WIDE_H)
+            .graphicsLayer { scaleX = scale; scaleY = scale; this.shape = shape; clip = true }
+            .background(C.bg200)
+            .border(2.dp, if (focused) C.focus else Color.Transparent, shape)
+            .focusRequester(fr)
+            .remoteClickable(source, onClick, onLongClick),
+    ) {
+        if (card.kind == "platform") { PlatformArt(card.title); return@Box }
+        val art = rememberArt(card)
+        val img = art?.backdrop ?: card.backdrop
+        if (img != null) {
+            AsyncImage(img, null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+        } else if (!card.poster.isNullOrBlank()) {
+            // Only a poster: show its upper part, which usually holds the faces and the title.
+            AsyncImage(card.poster, null, contentScale = ContentScale.Crop, alignment = Alignment.TopCenter, modifier = Modifier.fillMaxSize())
+        } else {
+            Box(Modifier.fillMaxSize().background(Brush.linearGradient(listOf(C.bg300, C.bg100))))
+        }
+        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0.45f to Color.Transparent, 1f to C.bg000.copy(alpha = 0.85f))))
+        Column(Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(start = 10.dp, end = 10.dp, bottom = if (card.progress != null) 10.dp else 8.dp)) {
+            if (art?.logo != null) {
+                AsyncImage(art.logo, null, contentScale = ContentScale.Fit, alignment = Alignment.BottomStart,
+                    modifier = Modifier.height(34.dp).fillMaxWidth(0.7f))
+            } else {
+                Txt(card.title, T.label, color = C.ink, maxLines = 1)
+            }
+        }
+        if (card.note != null) {
+            Txt(card.note, T.caption, color = C.ink, modifier = Modifier.align(Alignment.TopStart).padding(6.dp)
+                .background(C.scrimStrong, RoundedCornerShape(S.radiusSm)).padding(horizontal = 6.dp, vertical = 1.dp))
+        }
+        card.progress?.let { ProgressBar(it, Modifier.align(Alignment.BottomStart).fillMaxWidth(), height = 4.dp) }
+    }
+}
+
+/** The five platforms' colours, for their tiles and pages (names are written, no logos). */
+fun platformColors(name: String): List<Color> = when (name) {
+    "Apple TV+" -> listOf(Color(0xFF2C2C2E), Color(0xFF0E0E10))
+    "Netflix" -> listOf(Color(0xFF8E0A12), Color(0xFF1A0204))
+    "Disney+" -> listOf(Color(0xFF1C3F9E), Color(0xFF07122E))
+    "HBO" -> listOf(Color(0xFF5B2A9E), Color(0xFF140826))
+    "OSN+" -> listOf(Color(0xFF0E6E7A), Color(0xFF051E22))
+    else -> listOf(C.bg300, C.bg100)
+}
+
+@Composable
+fun BoxScope.PlatformArt(name: String) {
+    Box(Modifier.fillMaxSize().background(Brush.linearGradient(platformColors(name))), contentAlignment = Alignment.Center) {
+        Txt(name, T.displayXl.copy(fontSize = T.title.fontSize.times(1.6f), fontWeight = androidx.compose.ui.text.font.FontWeight.Black), color = Color.White)
+    }
+}
 
 /** A 2:3 poster. Focus lifts it with a white ring; progress shows along the bottom. */
 @Composable
@@ -165,13 +251,15 @@ fun RailRow(
     start: Dp = S.safeX,
     nextTitle: String? = null,
     showTitles: Boolean = false,
+    wide: Boolean = true,
 ) {
     val cards = rail.cards.orEmpty()
     val state = rememberLazyListState()
-    Column(Modifier.fillMaxWidth().height(if (showTitles) RAIL_H + 22.dp else RAIL_H), verticalArrangement = Arrangement.spacedBy(S.s2)) {
+    val h = if (wide) RAIL_H else POSTER_H + 58.dp + (if (showTitles) 22.dp else 0.dp)
+    Column(Modifier.fillMaxWidth().height(h), verticalArrangement = Arrangement.spacedBy(S.s2)) {
         RailHeader(rail.title, rail.accent, null, start)
         if (cards.isEmpty()) {
-            SkeletonRow(start)
+            SkeletonRow(start, wide)
             return@Column
         }
         KeepInView { LazyRow(
@@ -182,7 +270,13 @@ fun RailRow(
         ) {
             items(cards.size, key = { "${cards[it].kind}${cards[it].id}" }) { i ->
                 val c = cards[i]
-                PosterCard(
+                if (wide) WideCard(
+                    card = c,
+                    requestFocus = restoreCardId == c.id,
+                    onFocus = { onFocus(c) },
+                    onClick = { onClick(c) },
+                    onLongClick = { onLongClick(c) },
+                ) else PosterCard(
                     card = c,
                     inList = c.id in wishIds,
                     requestFocus = restoreCardId == c.id,
@@ -212,7 +306,7 @@ private fun SeeAllTile(onClick: () -> Unit) {
     val shape = RoundedCornerShape(S.radiusMd)
     Box(
         Modifier
-            .size(POSTER_W, POSTER_H)
+            .size(WIDE_H, WIDE_H)
             .clip(shape)
             .background(if (focused) C.focus else C.bg200)
             .border(1.dp, C.line, shape)
@@ -226,7 +320,13 @@ private fun SeeAllTile(onClick: () -> Unit) {
 fun HeroInfo(hero: Hero?, modifier: Modifier = Modifier) {
     Column(modifier.padding(start = S.safeX, end = S.safeX, bottom = S.s4).width(540.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         if (hero == null) return@Column
-        Txt(hero.card.title, T.display.copy(fontSize = T.display.fontSize.times(1.1f), fontWeight = androidx.compose.ui.text.font.FontWeight.ExtraBold), maxLines = 2)
+        val art = rememberArt(hero.card)
+        if (art?.logo != null) {
+            AsyncImage(art.logo, hero.card.title, contentScale = ContentScale.Fit, alignment = Alignment.CenterStart,
+                modifier = Modifier.height(92.dp).fillMaxWidth(0.75f))
+        } else {
+            Txt(hero.card.title, T.display.copy(fontSize = T.display.fontSize.times(1.1f), fontWeight = androidx.compose.ui.text.font.FontWeight.ExtraBold), maxLines = 2)
+        }
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
             if (hero.meta.isNotBlank()) Txt(hero.meta, T.label, color = C.inkMuted)
             if (hero.card.quality == 3) Chip("4K", C.uhd)
@@ -245,7 +345,7 @@ fun HeroBackdrop(url: String?) {
 
 /** Placeholder posters that pulse while a rail loads. */
 @Composable
-private fun SkeletonRow(start: Dp) {
+private fun SkeletonRow(start: Dp, wide: Boolean = true) {
     val t = androidx.compose.animation.core.rememberInfiniteTransition(label = "sk")
     val a by t.animateFloat(
         0.35f, 0.7f,
@@ -254,7 +354,7 @@ private fun SkeletonRow(start: Dp) {
     )
     Row(Modifier.padding(start = start, top = 6.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
         repeat(8) {
-            Box(Modifier.size(POSTER_W, POSTER_H).graphicsLayer { alpha = a }.clip(RoundedCornerShape(S.radiusMd)).background(C.bg200))
+            Box(Modifier.size(if (wide) WIDE_W else POSTER_W, if (wide) WIDE_H else POSTER_H).graphicsLayer { alpha = a }.clip(RoundedCornerShape(S.radiusMd)).background(C.bg200))
         }
     }
 }

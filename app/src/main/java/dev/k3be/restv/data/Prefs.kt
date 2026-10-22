@@ -32,6 +32,10 @@ class Prefs(context: Context) {
     fun subBox(): Boolean = sp.getBoolean("subBox", true)
     fun setSubBox(v: Boolean) { sp.edit().putBoolean("subBox", v).apply() }
 
+    /** TMDB API key for title logos and wide artwork. */
+    fun tmdbKey(): String? = sp.getString("tmdbKey", null)?.trim()?.takeIf { it.isNotEmpty() }
+    fun setTmdbKey(k: String) { sp.edit().putString("tmdbKey", k.trim()).apply() }
+
     /** SubDL API key for Arabic subtitles. */
     fun subdlKey(): String? = sp.getString("subdlKey", null)?.trim()?.takeIf { it.isNotEmpty() }
     fun setSubdlKey(k: String) { sp.edit().putString("subdlKey", k.trim()).apply() }

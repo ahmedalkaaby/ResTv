@@ -101,6 +101,21 @@ class VodScreenTest {
         rule.waitForIdle()
     }
 
+    @Test fun platformRenders() {
+        val (_, session) = start()
+        rule.setContent { dev.k3be.restv.ui.vod.PlatformScreen(session, "Netflix") {} }
+        rule.waitForIdle()
+        Thread.sleep(2000)
+        rule.mainClock.advanceTimeBy(3000)
+        rule.waitForIdle()
+    }
+
+    @Test fun splashRenders() {
+        rule.setContent { dev.k3be.restv.ui.Splash() }
+        rule.mainClock.advanceTimeBy(1500)
+        rule.waitForIdle()
+    }
+
     @Test fun seriesDetailRenders() {
         val (_, session) = start()
         rule.setContent { SeriesDetailScreen(session, 1) { _, _, _ -> } }

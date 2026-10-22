@@ -105,6 +105,11 @@ fun HomeScreen(
     val rows: List<HomeRow> = buildList {
         if (cont.isNotEmpty()) add(HomeRow.Vod(Rail("continue", "Continue watching", cont, accent = true)))
         if (live.isNotEmpty()) add(HomeRow.Live("live", "Live TV · recently watched", live))
+        // Platforms that have movies or series in the subscription, in the usual order.
+        val platformNames = (pick(movieRails, "platforms") + pick(seriesRails, "platforms")).map { it.title }.distinct()
+            .sortedBy { dev.k3be.restv.data.VodNaming.platforms.indexOf(it) }
+        if (platformNames.isNotEmpty()) add(HomeRow.Vod(Rail("platforms", "Streaming platforms",
+            platformNames.mapIndexed { i, n -> VodCard("platform", -(i + 1).toLong(), n, null, null) })))
         if (wish.isNotEmpty()) add(HomeRow.Vod(Rail("wish", "My List", wish)))
         pick(movieRails, "trending").takeIf { it.isNotEmpty() }?.let { add(HomeRow.Vod(Rail("trending-m", "Trending movies", it))) }
         pick(seriesRails, "trending").takeIf { it.isNotEmpty() }?.let { add(HomeRow.Vod(Rail("trending-s", "Trending series", it))) }
@@ -121,8 +126,8 @@ fun HomeScreen(
     fun focusCard(rowId: String, c: VodCard) {
         restored = true
         home.lastFocus = "$rowId|${c.id}"
-        heroKind = c.kind
-        if (c.kind == "movie") movies.focus(c) else series.focus(c)
+        heroKind = if (c.kind == "platform") "movie" else c.kind
+        if (c.kind == "series") series.focus(c) else movies.focus(c)
     }
 
     Box(Modifier.fillMaxSize()) {
@@ -154,7 +159,7 @@ fun HomeScreen(
                                     if (r != null) onPlayVod(r.first, r.second) else onOpen(c)
                                 } else onOpen(c)
                             },
-                            onLongClick = { c -> vodMenu = row.id to c },
+                            onLongClick = { c -> if (c.kind != "platform") vodMenu = row.id to c },
                             onSeeAll = null,
                             nextTitle = next,
                         )
@@ -205,7 +210,8 @@ fun HomeScreen(
 private fun HomeBackdrop(kind: String, movies: dev.k3be.restv.ui.vod.VodViewModel, series: dev.k3be.restv.ui.vod.VodViewModel) {
     val mh by movies.hero.collectAsStateWithLifecycle()
     val sh by series.hero.collectAsStateWithLifecycle()
-    val target = when (kind) {
+    val art = dev.k3be.restv.ui.vod.rememberArt(if (kind == "series") sh?.card else mh?.card)
+    val target = art?.backdrop ?: when (kind) {
         "movie" -> mh?.backdrop
         "series" -> sh?.backdrop ?: sh?.card?.poster
         else -> null

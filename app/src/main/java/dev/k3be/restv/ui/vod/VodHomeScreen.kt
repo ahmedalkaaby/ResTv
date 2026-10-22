@@ -98,7 +98,7 @@ fun VodHomeScreen(
                         onRailShown = vm::loadRail,
                         onFocus = { rail, c -> vm.focus(c); vm.lastFocus = "${rail.id}|${c.id}" },
                         onClick = onOpen,
-                        onLongClick = { rail, c -> menu = rail to c },
+                        onLongClick = { rail, c -> if (c.kind != "platform") menu = rail to c },
                         onSeeAll = { rail -> if ((rail.cards?.size ?: 0) >= 8 || rail.id.startsWith("cat:")) ({ onSeeAll(rail) }) else null },
                     )
                 }
@@ -129,7 +129,8 @@ private fun VodHeroBackdrop(vm: VodViewModel) {
     val hero by vm.hero.collectAsStateWithLifecycle()
     // Wait for focus to settle before swapping the big picture: fast scrolling stays smooth.
     var shown by remember { mutableStateOf<String?>(null) }
-    val target = hero?.backdrop ?: hero?.card?.poster?.takeIf { vm.kind == "series" }
+    val art = rememberArt(hero?.card)
+    val target = art?.backdrop ?: hero?.backdrop ?: hero?.card?.poster?.takeIf { vm.kind == "series" }
     LaunchedEffect(target) { delay(150); shown = target }
     HeroBackdrop(shown)
 }
@@ -202,7 +203,7 @@ fun VodGridScreen(
         Txt(if (list == null) "Loading…" else "${list.size} titles", T.caption, color = C.inkFaint, modifier = Modifier.padding(start = S.safeX, bottom = S.s3))
         if (list != null) {
             LazyVerticalGrid(
-                columns = GridCells.Adaptive(POSTER_W + 14.dp),
+                columns = GridCells.Adaptive(WIDE_W + 14.dp),
                 state = state,
                 contentPadding = PaddingValues(start = S.safeX, end = S.safeX, top = 8.dp, bottom = S.s8),
                 verticalArrangement = Arrangement.spacedBy(14.dp),
@@ -211,10 +212,8 @@ fun VodGridScreen(
             ) {
                 items(list.size, key = { list[it].id }) { i ->
                     val c = list[i]
-                    PosterCard(
+                    WideCard(
                         card = c,
-                        inList = c.id in wishIds,
-                        showTitle = true,
                         requestFocus = !focusedAny && (startId ?: list.first().id) == c.id,
                         onFocus = { focusedAny = true; vm.gridFocus[railId] = c.id },
                         onClick = { onOpen(c) },

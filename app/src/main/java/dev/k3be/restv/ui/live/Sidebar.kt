@@ -25,6 +25,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.shadow
+import androidx.compose.foundation.border
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.staticCompositionLocalOf
@@ -80,22 +82,27 @@ fun TopBar(active: SidebarItem, onSelect: (SidebarItem) -> Unit, autoHide: Boole
     val alpha by androidx.compose.animation.core.animateFloatAsState(
         if (!autoHide || bar.hasFocus) 1f else 0f, androidx.compose.animation.core.tween(120), label = "bar",
     )
-    Row(
-        Modifier.fillMaxWidth().padding(start = S.safeX, end = S.safeX, top = 16.dp)
+    // A floating capsule over the content, Apple TV style; the wordmark sits beside it.
+    Box(
+        Modifier.fillMaxWidth().padding(start = S.safeX, end = S.safeX, top = 14.dp)
             .graphicsLayer { this.alpha = alpha }
             .onFocusChanged { bar.hasFocus = it.hasFocus },
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        Txt("Restv", T.title, color = C.accent, modifier = Modifier.padding(end = S.s4))
-        listOf(SidebarItem.Home, SidebarItem.Live, SidebarItem.Movies, SidebarItem.Series, SidebarItem.Matches, SidebarItem.Search).forEach { item ->
-            NavItem(item, active == item, if (item == active) Modifier.focusRequester(bar.requester) else Modifier) { if (item != active) onSelect(item) }
+        Txt("Restv", T.title.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Black), color = C.accent, modifier = Modifier.align(Alignment.CenterStart))
+        Row(
+            Modifier.align(Alignment.Center)
+                .shadow(18.dp, RoundedCornerShape(50), clip = false)
+                .clip(RoundedCornerShape(50))
+                .background(C.bg100.copy(alpha = 0.78f))
+                .border(1.dp, C.ink.copy(alpha = 0.10f), RoundedCornerShape(50))
+                .padding(horizontal = 6.dp, vertical = 5.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            listOf(SidebarItem.Home, SidebarItem.Live, SidebarItem.Movies, SidebarItem.Series, SidebarItem.Matches, SidebarItem.Search, SidebarItem.Settings).forEach { item ->
+                NavItem(item, active == item, if (item == active) Modifier.focusRequester(bar.requester) else Modifier) { if (item != active) onSelect(item) }
+            }
         }
-        Spacer(Modifier.weight(1f))
-        NavItem(
-            SidebarItem.Settings, active == SidebarItem.Settings,
-            if (active == SidebarItem.Settings) Modifier.focusRequester(bar.requester) else Modifier,
-        ) { if (active != SidebarItem.Settings) onSelect(SidebarItem.Settings) }
     }
 }
 
@@ -110,12 +117,12 @@ private fun NavItem(item: SidebarItem, active: Boolean, modifier: Modifier = Mod
     }
     Box(
         Modifier
-            .height(40.dp)
+            .height(36.dp)
             .clip(RoundedCornerShape(50))
             .background(
                 when {
                     focused -> C.focus
-                    active -> C.bg100
+                    active -> C.ink.copy(alpha = 0.12f)
                     else -> C.bg000.copy(alpha = 0f)
                 }
             )

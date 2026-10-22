@@ -155,6 +155,8 @@ fun VodPlayerScreen(
     var position by remember { mutableLongStateOf(0L) }
     var duration by remember { mutableLongStateOf(0L) }
     var playing by remember { mutableStateOf(true) }
+    /** False only when you paused (not while loading). */
+    var wantsPlay by remember { mutableStateOf(true) }
     var buffering by remember { mutableStateOf(true) }
     var ended by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -228,6 +230,7 @@ fun VodPlayerScreen(
                 if (state == Player.STATE_READY) { duration = player.duration.coerceAtLeast(0); error = null; retries = 0 }
                 if (state == Player.STATE_ENDED) { ended = true; save() }
             }
+            override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) { wantsPlay = playWhenReady }
             override fun onIsPlayingChanged(isPlaying: Boolean) {
                 playing = isPlaying
                 if (!isPlaying) save()
@@ -320,7 +323,8 @@ fun VodPlayerScreen(
             delay(500)
         }
     }
-    LaunchedEffect(overlayToken) { overlay = true; delay(if (overlayToken <= 2) 7_000 else 4_000); if (player.isPlaying) overlay = false }
+    // Hides unless you paused: a new episode still loading at that moment no longer keeps it on screen.
+    LaunchedEffect(overlayToken) { overlay = true; delay(if (overlayToken <= 2) 7_000 else 4_000); if (player.playWhenReady) overlay = false }
     LaunchedEffect(notice) { if (notice != null) { delay(3_500); notice = null } }
 
     val hasNext = index < q.lastIndex && q[index + 1].kind == "episode"
@@ -470,7 +474,7 @@ fun VodPlayerScreen(
                 ),
                 maxLines = 3,
                 modifier = Modifier.align(Alignment.BottomCenter)
-                    .padding(start = 80.dp, end = 80.dp, bottom = if (overlay || !playing) 130.dp else 36.dp)
+                    .padding(start = 80.dp, end = 80.dp, bottom = if (overlay || !wantsPlay) 130.dp else 36.dp)
                     .background(Color.Black.copy(alpha = if (subBox) 0.5f else 0f), RoundedCornerShape(6.dp))
                     .padding(horizontal = 12.dp, vertical = 4.dp),
             )
@@ -487,7 +491,7 @@ fun VodPlayerScreen(
             LaunchedEffect(Unit) { focus.requestFocus() }
         }
 
-        if ((overlay || !playing) && !panelOpen) {
+        if ((overlay || !wantsPlay) && !panelOpen) {
             Column(
                 Modifier
                     .align(Alignment.BottomStart)

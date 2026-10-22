@@ -163,9 +163,13 @@ class VodViewModel(
         viewModelScope.launch {
             val trending = async { imdbRail("trending", "Trending now", if (isMovie) ImdbCharts.Chart.POPULAR else ImdbCharts.Chart.POPULAR_TV, 60) }
             val top = async { imdbRail("top", "IMDb Top 250", if (isMovie) ImdbCharts.Chart.TOP else ImdbCharts.Chart.TOP_TV, 250) }
-            val platforms = VodNaming.platforms.map { p ->
-                Rail("platform:$p", p, dedupe(if (isMovie) app.db.vod().moviesOnPlatform(loginId, p, 80).map { it.card() } else app.db.vod().seriesOnPlatform(loginId, p, 80).map { it.card() }).take(40))
-            }.filter { !it.cards.isNullOrEmpty() }
+            // One row of platform tiles; each opens that platform's own page.
+            val available = VodNaming.platforms.filter { p ->
+                (if (isMovie) app.db.vod().moviesOnPlatform(loginId, p, 1) else app.db.vod().seriesOnPlatform(loginId, p, 1)).isNotEmpty()
+            }
+            val platforms = if (available.isEmpty()) emptyList() else listOf(
+                Rail("platforms", "Streaming platforms", available.mapIndexed { i, p -> VodCard("platform", -(i + 1).toLong(), p, null, null) })
+            )
             val latest = Rail("latest", "Recently added", dedupe(
                 if (isMovie) app.db.vod().latestMovies(loginId, 80).map { it.card() } else app.db.vod().latestSeries(loginId, 80).map { it.card() }
             ).take(40))
@@ -173,7 +177,7 @@ class VodViewModel(
             fixed.value = platforms + latest
             val t = trending.await()
             val tp = top.await()
-            fixed.value = listOfNotNull(t, tp) + platforms + latest
+            fixed.value = platforms + listOfNotNull(t, tp) + latest
         }
     }
 
@@ -207,6 +211,15 @@ class VodViewModel(
         }
     }
 
+    /** A platform's titles: newest first, or best rated first. */
+    suspend fun platformCards(platform: String, byRating: Boolean = false): List<VodCard> {
+        val cards = dedupe(
+            if (isMovie) app.db.vod().moviesOnPlatform(loginId, platform, 3000).map { it.card() }
+            else app.db.vod().seriesOnPlatform(loginId, platform, 3000).map { it.card() }
+        )
+        return if (byRating) cards.filter { (it.rating ?: 0f) > 0f }.sortedByDescending { it.rating } else cards
+    }
+
     /** Everything behind a rail, for "See all". */
     suspend fun all(railId: String): List<VodCard> = when {
         railId == "recent" -> recentCards()
@@ -236,6 +249,10 @@ class VodViewModel(
 
     fun focus(card: VodCard) {
         heroJob?.cancel()
+        if (card.kind == "platform") {
+            _hero.value = Hero(card, null, "Everything from ${card.title} in your subscription: movies and series in one place.", "Platform")
+            return
+        }
         _hero.value = Hero(card, card.backdrop ?: _hero.value?.takeIf { it.card.id == card.id }?.backdrop, card.plot, meta(card, null))
         heroJob = viewModelScope.launch {
             delay(300)

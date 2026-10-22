@@ -86,7 +86,10 @@ fun Modifier.remoteClickable(
             if (!isOk(ev.key)) return@onPreviewKeyEvent false
             when (ev.type) {
                 KeyEventType.KeyDown -> {
-                    downSeen = true
+                    // Only a fresh press counts. Repeats from an OK held on something else (the hold
+                    // that just opened this menu) must not press the item that now has focus.
+                    if (ev.nativeKeyEvent.repeatCount == 0) downSeen = true
+                    if (!downSeen) return@onPreviewKeyEvent true
                     if (ev.nativeKeyEvent.repeatCount == 1 && onLongClick != null) {
                         longFired = true
                         onLongClick()

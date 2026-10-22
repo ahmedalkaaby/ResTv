@@ -203,7 +203,11 @@ fun LiveScreen(
             restoringChannel = vm.lastFocusedStreamId != null,
             onInitialFocus = ::focusSelectedCategory,
             onRight = ::focusLastChannel,
-            modifier = Modifier.width(220.dp).fillMaxHeight().padding(top = S.safeY, start = 8.dp),
+            // A floating card of categories rather than a strip glued to the edge.
+            modifier = Modifier.width(228.dp).fillMaxHeight().padding(top = S.s3, bottom = S.s4, start = 4.dp)
+                .clip(androidx.compose.foundation.shape.RoundedCornerShape(S.radiusLg))
+                .background(C.bg100.copy(alpha = 0.7f))
+                .padding(vertical = 8.dp, horizontal = 4.dp),
         )
         Column(Modifier.weight(1f).fillMaxHeight().padding(top = S.safeY, start = S.s4, end = S.safeX)) {
             InfoBand(

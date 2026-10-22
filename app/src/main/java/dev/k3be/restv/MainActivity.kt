@@ -81,6 +81,15 @@ fun AppRoot(vm: AppViewModel = viewModel()) {
         }
     }
     val saveable = rememberSaveableStateHolder()
+    val openCard: (dev.k3be.restv.ui.vod.VodCard) -> Unit = { c ->
+        vm.go(
+            when (c.kind) {
+                "platform" -> Route.Platform(c.title)
+                "movie" -> Route.MovieDetail(c.id)
+                else -> Route.SeriesDetail(c.id)
+            }
+        )
+    }
     val navigate: (SidebarItem) -> Unit = { item ->
         vm.go(
             when (item) {
@@ -101,6 +110,8 @@ fun AppRoot(vm: AppViewModel = viewModel()) {
         else { lastBack = now; exitHint = true }
     }
 
+    var splashDone by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { delay(1_300); splashDone = true }
     CompositionLocalProvider(LocalTopBarFocus provides topBar) {
     Box(Modifier.fillMaxSize().background(C.bg000)) {
         when (val r = route) {
@@ -108,14 +119,14 @@ fun AppRoot(vm: AppViewModel = viewModel()) {
                 saveable.SaveableStateProvider("home") {
                     HomeScreen(
                         session = s,
-                        onOpen = { c -> vm.go(if (c.kind == "movie") Route.MovieDetail(c.id) else Route.SeriesDetail(c.id)) },
+                        onOpen = openCard,
                         onPlayVod = { q, i -> vm.go(Route.VodPlayer(q, i)) },
                         onPlayLive = { list, index -> vm.go(Route.Player(list, index)) },
                         onNavigate = navigate,
                     )
                 }
             }
-            Route.Loading -> {}
+            Route.Loading -> dev.k3be.restv.ui.Splash()
             Route.Onboarding -> OnboardingScreen(sync = sync, onConnect = vm::connect)
             Route.Live -> session?.let { s ->
                 LiveScreen(
@@ -129,7 +140,7 @@ fun AppRoot(vm: AppViewModel = viewModel()) {
                 SearchScreen(
                     session = s,
                     onPlay = { list, index -> vm.go(Route.Player(list, index)) },
-                    onOpenVod = { c -> vm.go(if (c.kind == "movie") Route.MovieDetail(c.id) else Route.SeriesDetail(c.id)) },
+                    onOpenVod = openCard,
                     onNavigate = navigate,
                 )
             }
@@ -151,16 +162,17 @@ fun AppRoot(vm: AppViewModel = viewModel()) {
                         kind = kind,
                         sync = sync,
                         onDownload = { vm.syncVodNow(kind) },
-                        onOpen = { c -> vm.go(if (c.kind == "movie") Route.MovieDetail(c.id) else Route.SeriesDetail(c.id)) },
+                        onOpen = openCard,
                         onSeeAll = { rail -> vm.go(Route.VodGrid(kind, rail.id, rail.title)) },
                         onNavigate = navigate,
                     )
                 }
             }
             is Route.VodGrid -> session?.let { s ->
-                VodGridScreen(s, r.kind, r.railId, r.title) { c ->
-                    vm.go(if (c.kind == "movie") Route.MovieDetail(c.id) else Route.SeriesDetail(c.id))
-                }
+                VodGridScreen(s, r.kind, r.railId, r.title, openCard)
+            }
+            is Route.Platform -> session?.let { s ->
+                key(r.name) { dev.k3be.restv.ui.vod.PlatformScreen(s, r.name, openCard) }
             }
             is Route.MovieDetail -> session?.let { s ->
                 key(r.id) { MovieDetailScreen(s, r.id) { q, i, fresh -> vm.go(Route.VodPlayer(q, i, fresh)) } }
@@ -175,6 +187,11 @@ fun AppRoot(vm: AppViewModel = viewModel()) {
                 PlayerScreen(session = s, rows = r.channels, startIndex = r.index, onExit = { vm.back() })
             }
         }
+        androidx.compose.animation.AnimatedVisibility(
+            visible = !splashDone,
+            enter = androidx.compose.animation.EnterTransition.None,
+            exit = androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(350)),
+        ) { dev.k3be.restv.ui.Splash() }
         CrashReport()
         if (exitHint) {
             Toast("Press Back again to exit", Modifier.align(Alignment.BottomCenter).padding(bottom = S.safeY + S.s4))

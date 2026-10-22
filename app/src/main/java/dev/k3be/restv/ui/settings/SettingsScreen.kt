@@ -56,6 +56,7 @@ private enum class Section(val label: String) {
     Updates("Updates"),
     Account("Account & library"),
     Subtitles("Arabic subtitles"),
+    Artwork("Artwork & logos"),
     Commentary("Commentary audio"),
     Player("Player"),
     Matches("Matches server"),
@@ -95,6 +96,13 @@ fun SettingsScreen(session: Session, sync: SyncState, onSync: () -> Unit, onNavi
                     label = "SubDL API key",
                     current = app.prefs.subdlKey(),
                     onSave = { app.prefs.setSubdlKey(it) },
+                )
+                Section.Artwork -> SecretPane(
+                    title = "Artwork & logos · TMDB",
+                    help = "Wide artwork and each title's logo come from TMDB. Get a free key: sign up at themoviedb.org, then Settings → API → copy the “API Key”. Without one, the provider's own images are used.",
+                    label = "TMDB API key",
+                    current = app.prefs.tmdbKey(),
+                    onSave = { app.prefs.setTmdbKey(it); app.art.reset() },
                 )
                 Section.Commentary -> SecretPane(
                     title = "Commentary audio",

@@ -36,6 +36,7 @@ sealed interface Route {
     data class MovieDetail(val id: Long) : Route
     data class SeriesDetail(val id: Long) : Route
     /** "See all" for a rail or category. */
+    data class Platform(val name: String) : Route
     data class VodGrid(val kind: String, val railId: String, val title: String) : Route
     data class VodPlayer(val queue: List<PlayItem>, val index: Int, val fromStart: Boolean = false) : Route
 }
@@ -84,6 +85,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             } else {
                 app.db.accounts().touch(account.id, System.currentTimeMillis())
                 _session.value = Session(account, login)
+                app.art.login = login
                 _route.value = Route.Home
                 if (login.lastSyncAt == null) syncNow()
                 // A newer name parser (source tags like "AR SUBS") re-reads the catalogue once, in the background.
@@ -163,6 +165,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 val account = AccountEntity(accountId, name.trim().ifEmpty { "Me" }, now)
                 val login = probe.copy(id = loginId, accountId = accountId)
                 _session.value = Session(account, login)
+                app.art.login = login
                 runSync(login)
                 if (_sync.value !is SyncState.Failed) _route.value = Route.Home
             } catch (e: Exception) {

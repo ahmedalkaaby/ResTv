@@ -65,6 +65,17 @@ import dev.k3be.restv.ui.theme.S
 import dev.k3be.restv.ui.theme.T
 import kotlinx.coroutines.launch
 
+/** The title's logo when there is one, otherwise its name in large type. */
+@Composable
+fun TitleOrLogo(title: String, logo: String?, height: androidx.compose.ui.unit.Dp = 96.dp) {
+    if (logo != null) {
+        AsyncImage(logo, title, contentScale = ContentScale.Fit, alignment = Alignment.CenterStart,
+            modifier = Modifier.height(height).fillMaxWidth(0.8f))
+    } else {
+        Txt(title, T.displayXl, maxLines = 2)
+    }
+}
+
 // ---------------------------------------------------------------- Versions
 
 /** One copy of a title in the picker: "English" / "EN · 4K · MKV · Netflix Movies". */
@@ -173,10 +184,11 @@ fun MovieDetailScreen(
     }
 
     Box(Modifier.fillMaxSize()) {
-        Backdrop(i?.backdrop ?: m.poster, widthFraction = 0.8f, heightFraction = 1f)
+        val art = rememberArt(VodCard("movie", current.streamId, m.name, m.year, m.poster))
+        Backdrop(art?.backdrop ?: i?.backdrop ?: m.poster, widthFraction = 0.8f, heightFraction = 1f)
         Row(Modifier.fillMaxSize().padding(start = S.safeX, end = S.safeX, top = 64.dp), horizontalArrangement = Arrangement.spacedBy(S.s6)) {
             Column(Modifier.width(600.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Txt(i?.title ?: m.name, T.displayXl, maxLines = 2)
+                TitleOrLogo(i?.title ?: m.name, art?.logo)
                 Row(horizontalArrangement = Arrangement.spacedBy(S.s2), verticalAlignment = Alignment.CenterVertically) {
                     val meta = listOfNotNull(
                         (i?.year ?: m.year)?.toString(),
@@ -316,10 +328,11 @@ private fun SeriesDetailBody(
     }
 
     Box(Modifier.fillMaxSize()) {
-        Backdrop(i?.backdrop ?: s?.backdrop ?: s?.poster, widthFraction = 0.78f, heightFraction = 0.85f)
+        val art = s?.let { rememberArt(VodCard("series", it.seriesId, it.name, it.year, it.poster, backdrop = it.backdrop)) }
+        Backdrop(art?.backdrop ?: i?.backdrop ?: s?.backdrop ?: s?.poster, widthFraction = 0.78f, heightFraction = 0.85f)
         Column(Modifier.fillMaxSize().padding(top = S.safeY + 4.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Column(Modifier.padding(start = S.safeX).width(600.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Txt(title, T.display, maxLines = 1)
+                TitleOrLogo(title, art?.logo, height = 76.dp)
                 val meta = listOfNotNull(
                     (i?.year ?: s?.year)?.toString(),
                     i?.seasons?.size?.let { "$it season${if (it == 1) "" else "s"}" },
