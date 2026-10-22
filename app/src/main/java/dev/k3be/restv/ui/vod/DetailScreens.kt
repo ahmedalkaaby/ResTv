@@ -68,12 +68,7 @@ import kotlinx.coroutines.launch
 /** The title's logo when there is one, otherwise its name in large type. */
 @Composable
 fun TitleOrLogo(title: String, logo: String?, height: androidx.compose.ui.unit.Dp = 96.dp) {
-    if (logo != null) {
-        AsyncImage(logo, title, contentScale = ContentScale.Fit, alignment = Alignment.CenterStart,
-            modifier = Modifier.height(height).fillMaxWidth(0.8f))
-    } else {
-        Txt(title, T.displayXl, maxLines = 2)
-    }
+    LogoOrTitle(logo, title, height, 0.8f, T.displayXl)
 }
 
 // ---------------------------------------------------------------- Versions

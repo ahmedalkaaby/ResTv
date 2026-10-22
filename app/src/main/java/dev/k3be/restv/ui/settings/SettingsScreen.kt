@@ -128,13 +128,7 @@ fun SettingsScreen(session: Session, sync: SyncState, onSync: () -> Unit, onNavi
                     current = app.prefs.tmdbKey(),
                     onSave = { app.prefs.setTmdbKey(it); app.art.reset() },
                     check = { app.art.check(it) },
-                    extra = {
-                        val logos = remember { app.art.logoCount() }
-                        Txt(
-                            "Logos saved so far: $logos" + (app.art.lastError?.let { " · last problem: $it" } ?: ""),
-                            T.caption, color = if (app.art.lastError != null) C.danger else C.inkFaint, maxLines = 2,
-                        )
-                    },
+                    extra = { ArtworkTest(app) },
                 )
                 Section.Commentary -> SecretPane(
                     title = "Commentary audio",
@@ -347,5 +341,34 @@ private fun MatchesPane(app: RestvApp) {
             TvButton("Save", primary = true, modifier = pane.back) { app.prefs.setMatchesServer(url, key); editing = false }
             TvButton("Cancel") { url = app.prefs.matchesUrl() ?: ""; key = app.prefs.matchesKey() ?: ""; editing = false }
         }
+    }
+}
+
+/** Runs the artwork chain on one title and shows each step, plus the logo as the TV actually loads it. */
+@Composable
+private fun ArtworkTest(app: RestvApp) {
+    val scope = rememberCoroutineScope()
+    var lines by remember { mutableStateOf<List<String>?>(null) }
+    var running by remember { mutableStateOf(false) }
+    val logos = remember(lines) { app.art.logoCount() }
+    Txt("Logos saved so far: $logos" + (app.art.lastError?.let { " · last problem: $it" } ?: ""),
+        T.caption, color = if (app.art.lastError != null) C.danger else C.inkFaint, maxLines = 2)
+    TvButton(if (running) "Testing…" else "Test artwork") {
+        if (running) return@TvButton
+        running = true
+        scope.launch { lines = app.art.diagnose(); running = false }
+    }
+    lines?.forEach { l -> Txt(l, T.body, color = if (l.startsWith("✓")) C.success else C.danger, maxLines = 2) }
+    lines?.firstOrNull { it.startsWith("✓ Logo:") }?.let { l ->
+        val file = l.removePrefix("✓ Logo: ")
+        var state by remember { mutableStateOf("Loading the logo on this TV…") }
+        Txt(state, T.caption, color = C.inkFaint)
+        coil.compose.AsyncImage(
+            model = "https://image.tmdb.org/t/p/w500/$file",
+            contentDescription = null,
+            onSuccess = { state = "✓ The logo shows on this TV:" },
+            onError = { state = "✗ The logo didn't load on this TV: ${it.result.throwable.javaClass.simpleName}" },
+            modifier = Modifier.width(220.dp).padding(top = 4.dp),
+        )
     }
 }

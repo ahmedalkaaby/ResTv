@@ -40,7 +40,8 @@ class Artwork(
     private val mem = ConcurrentHashMap<String, Art>()
     private val misses = ConcurrentHashMap.newKeySet<String>()
     private val gate = Semaphore(4)
-    private val file = File(dir, "artwork.json")
+    // v2: earlier versions saved "no logo" results from before a TMDB key worked; start clean.
+    private val file = File(dir, "artwork-v2.json").also { File(dir, "artwork.json").delete() }
     @Volatile private var loaded = false
     @Volatile private var dirty = 0
 
@@ -98,7 +99,9 @@ class Artwork(
             .build()
         val root = getJson(images.toString(), key) ?: return null
         fun pick(arrKey: String, langs: List<String?>): String? {
+            // SVG logos can't be drawn by the image loader: PNG/JPG only.
             val list = (root[arrKey] as? JsonArray)?.mapNotNull { it as? JsonObject }.orEmpty()
+                .filter { (it["file_path"] as? JsonPrimitive)?.content?.lowercase()?.endsWith(".svg") != true }
             for (lang in langs) {
                 val best = list.filter { (it["iso_639_1"] as? JsonPrimitive)?.content.let { l -> if (lang == null) l == null || l == "null" else l == lang } }
                     .maxByOrNull { (it["vote_average"] as? JsonPrimitive)?.content?.toDoubleOrNull() ?: 0.0 }
@@ -158,6 +161,37 @@ class Artwork(
     }
 
     private fun key(kind: String, title: String, year: Int?) = "$kind|${VodNaming.key(title)}|${year ?: ""}"
+
+    /**
+     * Runs the whole chain for one well-known title and says how far it got, for Settings:
+     * search → images → the logo file itself.
+     */
+    suspend fun diagnose(title: String = "Inception", year: Int = 2010): List<String> = withContext(Dispatchers.IO) {
+        val key = prefs.tmdbKey() ?: return@withContext listOf("✗ No TMDB key saved")
+        val out = ArrayList<String>()
+        val art = runCatching { tmdb(key, "movie", title, year) }
+        art.onFailure { out += "✗ Lookup failed: ${it.javaClass.simpleName} ${it.message.orEmpty()}".trim() }
+        val a = art.getOrNull()
+        if (a == null) {
+            out += "✗ TMDB found nothing for “$title”" + (lastError?.let { " ($it)" } ?: "")
+            return@withContext out
+        }
+        out += "✓ TMDB found “$title”"
+        out += if (a.logo != null) "✓ Logo: ${a.logo.substringAfterLast('/')}" else "✗ TMDB has no PNG logo for it"
+        out += if (a.backdrop != null) "✓ Wide artwork found" else "✗ No wide artwork"
+        val probe = a.logo ?: a.backdrop
+        if (probe != null) {
+            out += try {
+                http.newCall(Request.Builder().url(probe).build()).execute().use { r ->
+                    if (r.isSuccessful) "✓ Image server answered (${(r.body?.contentLength() ?: 0) / 1024} KB)"
+                    else "✗ Image server answered ${r.code}"
+                }
+            } catch (e: Exception) {
+                "✗ Couldn't reach the image server image.tmdb.org (${e.javaClass.simpleName}) — likely blocked on this connection"
+            }
+        }
+        out
+    }
 
     /** Forget everything (after adding a TMDB key, so titles get logos). */
     fun reset() {

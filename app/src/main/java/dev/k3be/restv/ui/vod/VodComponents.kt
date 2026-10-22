@@ -26,6 +26,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -76,6 +78,34 @@ fun Backdrop(url: String?, modifier: Modifier = Modifier, widthFraction: Float =
             Modifier.fillMaxSize().background(
                 Brush.verticalGradient(0f to C.bg000.copy(alpha = 0.35f), 0.18f to Color.Transparent, 0.5f to Color.Transparent, 0.78f to C.bg000.copy(alpha = 0.85f), 1f to C.bg000)
             )
+        )
+    }
+}
+
+/**
+ * The title's logo image; if there is none, or it fails to load (blocked image server, unsupported
+ * file), the title in text instead, so nothing ever shows blank.
+ */
+@Composable
+fun LogoOrTitle(
+    logo: String?,
+    title: String,
+    height: Dp,
+    widthFraction: Float,
+    style: androidx.compose.ui.text.TextStyle,
+    alignment: Alignment = Alignment.CenterStart,
+) {
+    var failed by remember(logo) { mutableStateOf(false) }
+    if (logo == null || failed) {
+        Txt(title, style, color = C.ink, maxLines = 2)
+    } else {
+        AsyncImage(
+            model = logo,
+            contentDescription = title,
+            contentScale = ContentScale.Fit,
+            alignment = alignment,
+            onError = { failed = true },
+            modifier = Modifier.height(height).fillMaxWidth(widthFraction),
         )
     }
 }
@@ -140,12 +170,7 @@ fun WideCard(
         }
         Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0.45f to Color.Transparent, 1f to C.bg000.copy(alpha = 0.85f))))
         Column(Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(start = 10.dp, end = 10.dp, bottom = if (card.progress != null) 10.dp else 8.dp)) {
-            if (art?.logo != null) {
-                AsyncImage(art.logo, null, contentScale = ContentScale.Fit, alignment = Alignment.BottomStart,
-                    modifier = Modifier.height(34.dp).fillMaxWidth(0.7f))
-            } else {
-                Txt(card.title, T.label, color = C.ink, maxLines = 1)
-            }
+            LogoOrTitle(art?.logo, card.title, 34.dp, 0.7f, T.label, Alignment.BottomStart)
         }
         if (card.note != null) {
             Txt(card.note, T.caption, color = C.ink, modifier = Modifier.align(Alignment.TopStart).padding(6.dp)
@@ -329,12 +354,8 @@ fun HeroInfo(hero: Hero?, modifier: Modifier = Modifier) {
     Column(modifier.padding(start = S.safeX, end = S.safeX, bottom = S.s4).width(540.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         if (hero == null) return@Column
         val art = rememberArt(hero.card)
-        if (art?.logo != null) {
-            AsyncImage(art.logo, hero.card.title, contentScale = ContentScale.Fit, alignment = Alignment.CenterStart,
-                modifier = Modifier.height(92.dp).fillMaxWidth(0.75f))
-        } else {
-            Txt(hero.card.title, T.display.copy(fontSize = T.display.fontSize.times(1.1f), fontWeight = androidx.compose.ui.text.font.FontWeight.ExtraBold), maxLines = 2)
-        }
+        LogoOrTitle(art?.logo, hero.card.title, 92.dp, 0.75f,
+            T.display.copy(fontSize = T.display.fontSize.times(1.1f), fontWeight = androidx.compose.ui.text.font.FontWeight.ExtraBold))
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
             if (hero.meta.isNotBlank()) Txt(hero.meta, T.label, color = C.inkMuted)
             if (hero.card.quality == 3) Chip("4K", C.uhd)
