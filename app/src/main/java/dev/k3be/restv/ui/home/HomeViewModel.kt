@@ -78,9 +78,21 @@ class HomeViewModel(
     /** Unfinished movies and the episode you're on for each series, newest first. */
     private suspend fun buildContinue(watch: List<WatchEntity>) {
         val movies = watch.filter { it.kind == "movie" && !it.finished && it.positionMs > 30_000 }
+        // Each show once: the episode you're in, or, if you finished it, the next one (shows you've
+        // completed drop off).
+        val next = HashMap<Long, dev.k3be.restv.data.Episode>()
         val episodes = watch.filter { it.kind == "episode" }.groupBy { it.seriesId }.values
             .map { it.maxBy { w -> w.updatedAt } }
-            .filter { !it.finished || it.durationMs == 0L }
+            .sortedByDescending { it.updatedAt }.take(30)
+            .filter { w ->
+                if (!w.finished || w.durationMs == 0L) return@filter true
+                val info = runCatching { app.vod.seriesInfo(login, w.seriesId) }.getOrNull() ?: return@filter false
+                val all = info.seasons.flatMap { it.episodes }
+                val k = all.indexOfFirst { it.id == w.itemId }
+                val n = all.getOrNull(k + 1).takeIf { k >= 0 } ?: return@filter false
+                next[w.seriesId] = n
+                true
+            }
         val items = (movies + episodes).sortedByDescending { it.updatedAt }.take(30)
         val m = app.db.vod().moviesByIds(loginId, items.filter { it.kind == "movie" }.map { it.itemId }).associateBy { it.streamId }
         val s = app.db.vod().seriesByIds(loginId, items.filter { it.kind == "episode" }.map { it.seriesId }).associateBy { it.seriesId }
@@ -94,13 +106,19 @@ class HomeViewModel(
             } else {
                 val e = s[w.seriesId]
                 map["series:${w.seriesId}"] = w
+                val n = next[w.seriesId]
                 VodCard("series", w.seriesId, e?.name ?: w.title, e?.year, e?.poster ?: w.image, e?.rating,
-                    progress = w.fraction, note = "S${w.season}:E${w.episode}" + (left(w)?.let { " · $it" } ?: ""),
+                    progress = if (n != null) null else w.fraction,
+                    note = if (n != null) "Next · S${n.season}:E${n.number}" else "S${w.season}:E${w.episode}" + (left(w)?.let { " · $it" } ?: ""),
                     backdrop = e?.backdrop, plot = e?.plot, genre = e?.genre, source = e?.let { VodNaming.source(it.rawName) })
             }
         }
         watchFor = map
+        nextFor = next
     }
+
+    /** For shows whose current episode is finished: the episode that plays next. */
+    private var nextFor: Map<Long, dev.k3be.restv.data.Episode> = emptyMap()
 
     /** Continue straight into playback: the movie, or the series from the episode you're on. */
     suspend fun resume(card: VodCard): Pair<List<PlayItem>, Int>? {
@@ -115,7 +133,9 @@ class HomeViewModel(
             PlayItem("episode", e.id, card.id, e.season, e.number, info.title.ifBlank { card.title },
                 "S${e.season}:E${e.number} · ${e.title}", e.image ?: info.backdrop ?: card.poster, e.ext, e.durationMs)
         }
-        val i = all.indexOfFirst { it.id == w.itemId }
+        val target = nextFor[card.id]?.id ?: w.itemId
+        val i = all.indexOfFirst { it.id == target }
+        app.vod.lastPlayedSeries = card.id
         return if (i >= 0) queue to i else null
     }
 }

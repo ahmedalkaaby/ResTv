@@ -289,7 +289,9 @@ private fun SeriesDetailBody(
         }
         info = runCatching { app.vod.seriesInfo(session.login, id) }.onFailure { error = it.message }.getOrNull()
     }
-    val watched by remember { app.db.watch().observeSeries(accountId, loginId, id) }.collectAsState(emptyList<WatchEntity>())
+    // Null until the database has answered: the season isn't chosen before we know what you watched.
+    val watchedOrNull by remember { app.db.watch().observeSeries(accountId, loginId, id) }.collectAsState<List<WatchEntity>, List<WatchEntity>?>(null)
+    val watched = watchedOrNull.orEmpty()
     val byEpisode = watched.associateBy { it.itemId }
     val wish by remember { app.db.wish().observe(accountId, loginId) }.collectAsState(emptyList<WishEntity>())
     val inList = wish.any { it.kind == "series" && it.itemId == id }
@@ -309,10 +311,13 @@ private fun SeriesDetailBody(
     } ?: 0
     val resumeEp = all.getOrNull(resumeIndex)
     var season by remember { mutableIntStateOf(-1) }
-    LaunchedEffect(resumeEp?.season, i) { if (season == -1 && resumeEp != null) season = resumeEp.season }
+    // Coming back from the player: open on that season with the episode you're on in focus.
+    val cameBack = remember { app.vod.lastPlayedSeries == id }
+    val ready = i != null && watchedOrNull != null
+    LaunchedEffect(ready) { if (ready && season == -1) season = resumeEp?.season ?: i!!.seasons.firstOrNull()?.number ?: 1 }
     var focusedEp by remember { mutableStateOf<Episode?>(null) }
     val primary = remember { FocusRequester() }
-    LaunchedEffect(i != null) { if (i != null) runCatching { primary.requestFocus() } }
+    LaunchedEffect(ready) { if (ready && !cameBack) runCatching { primary.requestFocus() } }
 
     val title = i?.title ?: s?.name ?: ""
     fun queue(): List<PlayItem> = all.map { e ->
@@ -322,6 +327,7 @@ private fun SeriesDetailBody(
     }
     fun play(index: Int) {
         val e = all.getOrNull(index) ?: return
+        app.vod.lastPlayedSeries = id
         s?.let { app.prefs.setChosenVersion("series", it.titleKey, id) }
         val w = byEpisode[e.id]
         onPlay(queue(), index, w == null || w.finished)
@@ -377,10 +383,11 @@ private fun SeriesDetailBody(
                 }
                 val eps = i.seasons.firstOrNull { it.number == season }?.episodes ?: i.seasons.first().episodes
                 val rowState = rememberLazyListState()
-                LaunchedEffect(season) {
+                LaunchedEffect(season, resumeEp?.id) {
                     val k = eps.indexOfFirst { it.id == resumeEp?.id }
                     rowState.scrollToItem(if (k > 0) k else 0)
                 }
+                var focusDone by remember { mutableStateOf(!cameBack) }
                 LazyRow(
                     state = rowState,
                     contentPadding = PaddingValues(horizontal = S.safeX),
@@ -391,6 +398,8 @@ private fun SeriesDetailBody(
                         val e = eps[k]
                         EpisodeCard(
                             e = e,
+                            requestFocus = !focusDone && e.id == resumeEp?.id && season == e.season,
+                            onFocused = { focusDone = true },
                             watch = byEpisode[e.id],
                             fallbackImage = i.backdrop ?: s?.backdrop,
                             onFocus = { focusedEp = e },
@@ -462,10 +471,14 @@ private fun EpisodeCard(
     onFocus: () -> Unit,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
+    requestFocus: Boolean = false,
+    onFocused: () -> Unit = {},
 ) {
     val source = remember { MutableInteractionSource() }
     val focused by source.collectIsFocusedAsState()
-    if (focused) LaunchedEffect(Unit) { onFocus() }
+    val fr = remember { FocusRequester() }
+    if (focused) LaunchedEffect(Unit) { onFocus(); onFocused() }
+    if (requestFocus) LaunchedEffect(Unit) { runCatching { fr.requestFocus() } }
     val scale by animateFloatAsState(if (focused) 1.06f else 1f, tween(90), label = "ep")
     val shape = RoundedCornerShape(S.radiusMd)
     val finished = watch?.finished == true
@@ -477,6 +490,7 @@ private fun EpisodeCard(
                 .clip(shape)
                 .background(C.bg200)
                 .then(if (focused) Modifier.border(2.dp, C.focus, shape) else Modifier)
+                .focusRequester(fr)
                 .remoteClickable(source, onClick, onLongClick),
         ) {
             val img = e.image ?: fallbackImage

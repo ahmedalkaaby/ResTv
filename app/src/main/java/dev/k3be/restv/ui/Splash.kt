@@ -37,7 +37,8 @@ fun Splash() {
         line.animateTo(1f, tween(900, delayMillis = 250, easing = FastOutSlowInEasing))
     }
     Box(
-        Modifier.fillMaxSize().background(
+        // Solid first: nothing behind may show through while the app loads underneath.
+        Modifier.fillMaxSize().background(C.bg000).background(
             Brush.radialGradient(listOf(C.accent.copy(alpha = 0.10f), C.bg000), radius = 900f)
         ),
         contentAlignment = Alignment.Center,

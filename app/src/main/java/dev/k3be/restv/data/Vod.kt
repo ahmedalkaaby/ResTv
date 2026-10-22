@@ -60,6 +60,9 @@ class VodRepo(
     private val xtream: XtreamClient,
     private val imdb: ImdbCharts,
 ) {
+    /** The series whose episode was last started, so its page reopens on that episode. */
+    @Volatile var lastPlayedSeries: Long? = null
+
     private val movieCache = lru<Long, MovieInfo>(60)
     private val seriesCache = lru<Long, SeriesInfo>(30)
 
