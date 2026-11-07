@@ -52,8 +52,9 @@ import dev.k3be.restv.ui.theme.T
 
 @Composable
 fun OnboardingScreen(sync: SyncState, onConnect: (name: String, host: String, user: String, pass: String) -> Unit) {
-    var name by rememberSaveable { mutableStateOf("Ahmed") }
-    var host by rememberSaveable { mutableStateOf("http://tv.business-cdn-8k.com") }
+    var name by rememberSaveable { mutableStateOf("") }
+    var host by rememberSaveable { mutableStateOf("") }
+    var phone by remember { mutableStateOf(false) }
     var user by rememberSaveable { mutableStateOf("") }
     var pass by rememberSaveable { mutableStateOf("") }
     val first = remember { FocusRequester() }
@@ -78,8 +79,9 @@ fun OnboardingScreen(sync: SyncState, onConnect: (name: String, host: String, us
             }
         }
         Column(Modifier.width(420.dp).padding(top = 40.dp), verticalArrangement = Arrangement.spacedBy(S.s3)) {
-            TvTextField("Account name", name, { name = it }, Modifier.focusRequester(first))
-            TvTextField("Server", host, { host = it }, keyboardType = KeyboardType.Uri)
+            dev.k3be.restv.ui.components.PhoneButton(Modifier.focusRequester(first), label = "Fill in from my phone") { phone = true }
+            TvTextField("Account name (optional)", name, { name = it })
+            TvTextField("Server, or the whole playlist link", host, { host = it }, keyboardType = KeyboardType.Uri)
             TvTextField("Username", user, { user = it })
             TvTextField("Password", pass, { pass = it }, password = true)
             Spacer(Modifier.height(S.s2))
@@ -90,6 +92,24 @@ fun OnboardingScreen(sync: SyncState, onConnect: (name: String, host: String, us
             ) { onConnect(name, host, user, pass) }
         }
     }
+    if (phone) dev.k3be.restv.ui.components.PhoneInputDialog(
+        title = "Your Xtream login",
+        fields = listOf(
+            dev.k3be.restv.data.PhoneInput.Field("link", "Whole playlist link (fills everything below)", ""),
+            dev.k3be.restv.data.PhoneInput.Field("host", "Server (e.g. http://example.com:8080)", host),
+            dev.k3be.restv.data.PhoneInput.Field("user", "Username", user),
+            dev.k3be.restv.data.PhoneInput.Field("pass", "Password", pass, secret = true),
+            dev.k3be.restv.data.PhoneInput.Field("name", "Account name (optional)", name),
+        ),
+        onResult = { v ->
+            val parsed = dev.k3be.restv.data.PhoneInput.parseXtreamLink(v["link"].orEmpty())
+            host = parsed?.first ?: v["host"].orEmpty()
+            user = parsed?.second ?: v["user"].orEmpty()
+            pass = parsed?.third ?: v["pass"].orEmpty()
+            name = v["name"].orEmpty()
+        },
+        onClose = { phone = false },
+    )
 }
 
 @Composable

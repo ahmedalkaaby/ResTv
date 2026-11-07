@@ -27,6 +27,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.foundation.layout.width
@@ -124,24 +125,17 @@ fun FocusRow(
     val focused by source.collectIsFocusedAsState()
     if (focused) androidx.compose.runtime.LaunchedEffect(Unit) { onFocused() }
     val shape = RoundedCornerShape(S.radiusMd)
-    val bg = when {
-        lifted -> C.bg300
-        focused -> C.bg300
-        selected -> C.accentSoft
-        else -> Color.Transparent
-    }
     Box(
         modifier
             .fillMaxWidth()
             .height(height)
-            .padding(horizontal = if (lifted) 0.dp else 0.dp)
-            .clip(shape)
-            .background(bg, shape)
             .then(
                 when {
-                    lifted -> Modifier.border(2.dp, C.accent, shape)
-                    focused -> Modifier.border(2.dp, C.focus, shape)
-                    else -> Modifier
+                    lifted -> Modifier.clip(shape).background(C.bg300, shape).border(2.dp, C.accent, shape)
+                    // Focused: bright frosted glass with a clear white edge.
+                    focused -> Modifier.clip(shape).background(Color.White.copy(alpha = 0.16f), shape).border(1.5.dp, Color.White.copy(alpha = 0.85f), shape)
+                    selected -> Modifier.clip(shape).background(C.accentSoft, shape)
+                    else -> Modifier.clip(shape)
                 }
             )
             .remoteClickable(source, onClick, onLongClick),
@@ -149,7 +143,26 @@ fun FocusRow(
     ) { content(focused) }
 }
 
-/** Buttons: secondary bg-300, primary amber; any focused button becomes a white fill. */
+/**
+ * Frosted glass: a see-through tinted fill, a soft light from the top, and a hairline edge.
+ * (Android TV can't blur what's behind a view, so the depth comes from tint and light.)
+ */
+fun Modifier.glass(shape: androidx.compose.ui.graphics.Shape, strength: Float = 1f): Modifier = this
+    .clip(shape)
+    .background(C.bg100.copy(alpha = 0.55f * strength), shape)
+    .background(
+        androidx.compose.ui.graphics.Brush.verticalGradient(
+            listOf(Color.White.copy(alpha = 0.11f * strength), Color.White.copy(alpha = 0.035f * strength))
+        ),
+        shape,
+    )
+    .border(1.dp, Color.White.copy(alpha = 0.13f), shape)
+
+/** A soft white glow around something focused, instead of a hard ring. */
+fun Modifier.focusGlow(focused: Boolean, shape: androidx.compose.ui.graphics.Shape): Modifier =
+    if (!focused) this else this.shadow(22.dp, shape, clip = false, ambientColor = Color.White, spotColor = Color.White)
+
+/** Buttons: frosted pills; primary amber; any focused button becomes a glowing white fill. */
 @Composable
 fun TvButton(
     text: String,
@@ -162,26 +175,27 @@ fun TvButton(
     val source = remember { MutableInteractionSource() }
     val focused by source.collectIsFocusedAsState()
     val scale by animateFloatAsState(if (focused) 1.04f else 1f, tween(90), label = "btn")
-    val bg = when {
-        focused -> C.focus
-        !enabled -> C.bg200
-        primary -> C.accent
-        else -> C.bg300
-    }
     val fg = when {
         focused -> C.focusInk
         !enabled -> C.inkFaint
         primary -> C.accentInk
         else -> C.ink
     }
+    val shape = RoundedCornerShape(50)
     Row(
         modifier
             .scale(scale)
-            .height(40.dp)
-            .clip(RoundedCornerShape(S.radiusMd))
-            .background(bg)
+            .height(42.dp)
+            .focusGlow(focused, shape)
+            .then(
+                when {
+                    focused -> Modifier.clip(shape).background(C.focus, shape)
+                    primary && enabled -> Modifier.clip(shape).background(C.accent, shape)
+                    else -> Modifier.glass(shape, if (enabled) 1f else 0.5f)
+                }
+            )
             .remoteClickable(source, { if (enabled) onClick() })
-            .padding(horizontal = S.s4),
+            .padding(horizontal = S.s4 + 4.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(S.s2),
     ) {
@@ -302,6 +316,7 @@ object Icons {
     val move = stroke("move", "M8 9l4 -4 4 4M8 15l4 4 4 -4")
     val eyeOff = stroke("eyeoff", "M3 3l18 18", "M10.6 5.1A10 10 0 0 1 12 5c5 0 9 4.5 10 7 -.4 1 -1.2 2.3 -2.4 3.5M6.6 6.6C4.5 8 3 10.2 2 12c1 2.5 5 7 10 7 1.7 0 3.3 -.5 4.6 -1.3")
     val play = solid("play", "M7 4.5v15l12.5 -7.5z")
+    val phone = stroke("phone", "M8 3h8a1.5 1.5 0 0 1 1.5 1.5v15a1.5 1.5 0 0 1 -1.5 1.5h-8a1.5 1.5 0 0 1 -1.5 -1.5v-15a1.5 1.5 0 0 1 1.5 -1.5z", "M11 18h2")
     val sync = stroke("sync", "M4 12a8 8 0 0 1 14 -5.3L20 9M20 4v5h-5M20 12a8 8 0 0 1 -14 5.3L4 15M4 20v-5h5")
     val check = stroke("check", "M5 12.5l4.5 4.5L19 7.5")
     val history = stroke("history", "M3 12a9 9 0 1 0 3 -6.7L3 8", "M3 3v5h5M12 7v5l3 2")
@@ -318,7 +333,7 @@ fun ActionMenu(title: String, actions: List<Pair<String, () -> Unit>>, onClose: 
         val first = remember { androidx.compose.ui.focus.FocusRequester() }
         androidx.compose.runtime.LaunchedEffect(Unit) { runCatching { first.requestFocus() } }
         androidx.compose.foundation.layout.Column(
-            Modifier.width(380.dp).clip(RoundedCornerShape(S.radiusLg)).background(C.bg100).padding(S.s4),
+            Modifier.width(380.dp).background(C.bg000.copy(alpha = 0.6f), RoundedCornerShape(S.radiusLg)).glass(RoundedCornerShape(S.radiusLg), 1.4f).padding(S.s4),
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             Txt(title, T.title, maxLines = 2, modifier = Modifier.padding(start = 8.dp, bottom = 6.dp))

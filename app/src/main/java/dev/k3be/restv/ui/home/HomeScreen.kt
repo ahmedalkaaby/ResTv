@@ -46,6 +46,8 @@ import dev.k3be.restv.ui.components.Badge
 import dev.k3be.restv.ui.components.BadgeKind
 import dev.k3be.restv.ui.components.Toast
 import dev.k3be.restv.ui.components.Txt
+import dev.k3be.restv.ui.components.focusGlow
+import dev.k3be.restv.ui.components.glass
 import dev.k3be.restv.ui.components.remoteClickable
 import dev.k3be.restv.ui.live.ChannelRow
 import dev.k3be.restv.ui.live.SidebarItem
@@ -87,6 +89,7 @@ fun HomeScreen(
     val cont by home.continueWatching.collectAsStateWithLifecycle()
     val wish by home.myList.collectAsStateWithLifecycle()
     val live by home.recentChannels.collectAsStateWithLifecycle()
+    val extra by home.extra.collectAsStateWithLifecycle()
     val movieRails by movies.rails.collectAsStateWithLifecycle()
     val seriesRails by series.rails.collectAsStateWithLifecycle()
     val movieWish by movies.wishIds.collectAsStateWithLifecycle()
@@ -117,6 +120,7 @@ fun HomeScreen(
         pick(seriesRails, "top").takeIf { it.isNotEmpty() }?.let { add(HomeRow.Vod(Rail("top-s", "IMDb Top 250 series", it))) }
         pick(movieRails, "latest").takeIf { it.isNotEmpty() }?.let { add(HomeRow.Vod(Rail("latest-m", "New movies", it))) }
         pick(seriesRails, "latest").takeIf { it.isNotEmpty() }?.let { add(HomeRow.Vod(Rail("latest-s", "New episodes", it))) }
+        extra.forEach { add(HomeRow.Vod(it)) }
     }
 
     val start = remember { home.lastFocus }
@@ -280,9 +284,10 @@ private fun LiveTile(row: ChannelRow, requestFocus: Boolean, onFocus: () -> Unit
     Box(
         Modifier
             .size(240.dp, 135.dp)
+            .focusGlow(focused, shape)
             .graphicsLayer { scaleX = scale; scaleY = scale; this.shape = shape; clip = true }
             .background(C.bg200)
-            .border(2.dp, if (focused) C.focus else Color.Transparent, shape)
+            .border(1.5.dp, if (focused) Color.White.copy(alpha = 0.92f) else Color.White.copy(alpha = 0.06f), shape)
             .focusRequester(fr)
             .remoteClickable(source, onClick, onLongClick),
     ) {

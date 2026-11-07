@@ -97,9 +97,19 @@ fun SearchScreen(
             verticalArrangement = Arrangement.spacedBy(S.s3),
         ) {
             Txt("Search", T.titleLg)
-            Column(Modifier.width(560.dp)) {
-                TvTextField("Channels, movies or series", query, { live.searchQuery.value = it }, Modifier.focusRequester(field), keyboardType = KeyboardType.Text)
+            var phone by remember { mutableStateOf(false) }
+            androidx.compose.foundation.layout.Row(horizontalArrangement = Arrangement.spacedBy(S.s2), verticalAlignment = androidx.compose.ui.Alignment.Bottom) {
+                Column(Modifier.width(560.dp)) {
+                    TvTextField("Channels, movies or series", query, { live.searchQuery.value = it }, Modifier.focusRequester(field), keyboardType = KeyboardType.Text)
+                }
+                dev.k3be.restv.ui.components.PhoneButton { phone = true }
             }
+            if (phone) dev.k3be.restv.ui.components.PhoneInputDialog(
+                title = "Search",
+                fields = listOf(dev.k3be.restv.data.PhoneInput.Field("q", "Search for", query)),
+                onResult = { live.searchQuery.value = it["q"].orEmpty() },
+                onClose = { phone = false },
+            )
             Txt(
                 when {
                     query.trim().length < 2 -> "Type at least 2 letters. The TV keyboard's mic works for voice search."

@@ -44,6 +44,8 @@ import dev.k3be.restv.ui.components.Badge
 import dev.k3be.restv.ui.components.BadgeKind
 import dev.k3be.restv.ui.components.ProgressBar
 import dev.k3be.restv.ui.components.Txt
+import dev.k3be.restv.ui.components.focusGlow
+import dev.k3be.restv.ui.components.glass
 import dev.k3be.restv.ui.components.remoteClickable
 import dev.k3be.restv.ui.theme.C
 import dev.k3be.restv.ui.theme.S
@@ -151,9 +153,10 @@ fun WideCard(
     Box(
         modifier
             .size(WIDE_W, WIDE_H)
+            .focusGlow(focused, shape)
             .graphicsLayer { scaleX = scale; scaleY = scale; this.shape = shape; clip = true }
             .background(C.bg200)
-            .border(2.dp, if (focused) C.focus else Color.Transparent, shape)
+            .border(1.5.dp, if (focused) Color.White.copy(alpha = 0.92f) else Color.White.copy(alpha = 0.06f), shape)
             .focusRequester(fr)
             .remoteClickable(source, onClick, onLongClick),
     ) {
@@ -226,9 +229,10 @@ fun PosterCard(
         Box(
             Modifier
                 .size(width, height)
+                .focusGlow(focused, shape)
                 .graphicsLayer { scaleX = scale; scaleY = scale; this.shape = shape; clip = true }
                 .background(C.bg200)
-                .border(2.dp, if (focused) C.focus else Color.Transparent, shape)
+                .border(1.5.dp, if (focused) Color.White.copy(alpha = 0.92f) else Color.White.copy(alpha = 0.06f), shape)
                 .focusRequester(fr)
                 .remoteClickable(source, onClick, onLongClick),
         ) {

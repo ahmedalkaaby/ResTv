@@ -25,6 +25,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import dev.k3be.restv.ui.components.glass
 import androidx.compose.ui.draw.shadow
 import androidx.compose.foundation.border
 import androidx.compose.ui.graphics.graphicsLayer
@@ -92,9 +93,7 @@ fun TopBar(active: SidebarItem, onSelect: (SidebarItem) -> Unit, autoHide: Boole
         Row(
             Modifier.align(Alignment.Center)
                 .shadow(18.dp, RoundedCornerShape(50), clip = false)
-                .clip(RoundedCornerShape(50))
-                .background(C.bg100.copy(alpha = 0.78f))
-                .border(1.dp, C.ink.copy(alpha = 0.10f), RoundedCornerShape(50))
+                .glass(RoundedCornerShape(50), 1.3f)
                 .padding(horizontal = 6.dp, vertical = 5.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(2.dp),

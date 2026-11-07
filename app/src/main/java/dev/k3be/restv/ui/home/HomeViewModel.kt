@@ -52,7 +52,12 @@ class HomeViewModel(
     /** "railId|cardId" of the last focused tile. */
     var lastFocus: String? = null
 
+    private val _extra = MutableStateFlow<List<dev.k3be.restv.ui.vod.Rail>>(emptyList())
+    /** Variety rows: best rated, 4K, Arabic, kids, a few genres, and a daily mix. */
+    val extra: StateFlow<List<dev.k3be.restv.ui.vod.Rail>> = _extra
+
     init {
+        loadExtras()
         viewModelScope.launch {
             app.db.watch().observeRecent(accountId, loginId).collect { buildContinue(it) }
         }
@@ -137,5 +142,52 @@ class HomeViewModel(
         val i = all.indexOfFirst { it.id == target }
         app.vod.lastPlayedSeries = card.id
         return if (i >= 0) queue to i else null
+    }
+
+    private fun dev.k3be.restv.data.db.MovieEntity.card() = VodCard("movie", streamId, name, year, poster, rating, quality, source = VodNaming.source(rawName))
+    private fun dev.k3be.restv.data.db.SeriesEntity.card() = VodCard("series", seriesId, name, year, poster, rating,
+        backdrop = backdrop, plot = plot, genre = genre, source = VodNaming.source(rawName))
+
+    /** One card per title (the same film sits in several categories and qualities). */
+    private fun dedupe(cards: List<VodCard>) = cards.groupBy { it.kind + VodNaming.key(it.title) + (it.year ?: "") }
+        .values.map { g -> g.maxBy { it.quality } }.let { best -> val ids = best.map { it.id }.toSet(); cards.filter { it.id in ids }.distinctBy { it.kind + it.id } }
+
+    fun loadExtras() {
+        viewModelScope.launch {
+            val dao = app.db.vod()
+            if (dao.countMovies(loginId) + dao.countSeries(loginId) == 0) return@launch
+            val out = ArrayList<dev.k3be.restv.ui.vod.Rail>()
+            val topM = dedupe(dao.topRatedMovies(loginId, 200).map { it.card() })
+            val topS = dedupe(dao.topRatedSeries(loginId, 200).map { it.card() })
+            if (topM.size >= 6) out += dev.k3be.restv.ui.vod.Rail("x-top-m", "Highest rated movies", topM.take(30))
+            if (topS.size >= 6) out += dev.k3be.restv.ui.vod.Rail("x-top-s", "Highest rated series", topS.take(30))
+            val uhd = dedupe(dao.movies4k(loginId, 120).map { it.card() })
+            if (uhd.size >= 6) out += dev.k3be.restv.ui.vod.Rail("x-4k", "In 4K", uhd.take(30))
+
+            // Rows built from the provider's own category names, in English or Arabic.
+            val mCats = dao.categories(loginId, "movie")
+            val sCats = dao.categories(loginId, "series")
+            suspend fun fromCategories(id: String, title: String, words: List<String>) {
+                val m = mCats.filter { c -> words.any { it in c.rawName.lowercase() } }
+                val s = sCats.filter { c -> words.any { it in c.rawName.lowercase() } }
+                val cards = m.take(4).flatMap { dao.moviesIn(loginId, it.categoryId, 25).map { e -> e.card() to e.added } } +
+                    s.take(4).flatMap { dao.seriesIn(loginId, it.categoryId, 25).map { e -> e.card() to e.updated } }
+                val list = dedupe(cards.sortedByDescending { it.second }.map { it.first })
+                if (list.size >= 6) out += dev.k3be.restv.ui.vod.Rail(id, title, list.take(30))
+            }
+            fromCategories("x-ar", "Arabic picks", listOf("arab", "عرب", "ar |", "ar-", "ar:", "|ar|", "مسلسلات", "افلام"))
+            fromCategories("x-kids", "Kids & family", listOf("kid", "child", "cartoon", "animation", "anime", "family", "اطفال", "أطفال", "كرتون"))
+            fromCategories("x-action", "Action", listOf("action", "اكشن", "أكشن"))
+            fromCategories("x-comedy", "Comedy", listOf("comedy", "كوميدي"))
+            fromCategories("x-horror", "Horror & thriller", listOf("horror", "thriller", "رعب", "اثارة", "إثارة"))
+            fromCategories("x-doc", "Documentaries", listOf("documentar", "وثائقي"))
+            fromCategories("x-turkish", "Turkish series", listOf("turk", "تركي"))
+
+            // A different mix every day from the best rated.
+            val day = java.time.LocalDate.now().toEpochDay()
+            val mix = (topM.take(80) + topS.take(80)).shuffled(java.util.Random(day)).take(24)
+            if (mix.size >= 6) out += dev.k3be.restv.ui.vod.Rail("x-mix", "Today's mix", mix)
+            _extra.value = out
+        }
     }
 }

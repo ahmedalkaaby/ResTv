@@ -32,6 +32,7 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import dev.k3be.restv.ui.components.glass
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.foundation.border
@@ -368,9 +369,8 @@ private fun ChannelListPanel(
             .width(380.dp)
             .fillMaxHeight()
             .shadow(24.dp, RoundedCornerShape(S.radiusLg), clip = false)
-            .clip(RoundedCornerShape(S.radiusLg))
-            .background(C.bg100.copy(alpha = 0.86f))
-            .border(1.dp, C.ink.copy(alpha = 0.08f), RoundedCornerShape(S.radiusLg))
+            .background(C.bg000.copy(alpha = 0.55f), RoundedCornerShape(S.radiusLg))
+            .glass(RoundedCornerShape(S.radiusLg), 1.4f)
             .padding(start = S.s4, end = S.s4, top = S.s4, bottom = S.s4),
         verticalArrangement = Arrangement.spacedBy(S.s2),
     ) {
@@ -429,9 +429,8 @@ private fun CategoryBrowserPanel(
             .width(380.dp)
             .fillMaxHeight()
             .shadow(24.dp, RoundedCornerShape(S.radiusLg), clip = false)
-            .clip(RoundedCornerShape(S.radiusLg))
-            .background(C.bg100.copy(alpha = 0.86f))
-            .border(1.dp, C.ink.copy(alpha = 0.08f), RoundedCornerShape(S.radiusLg))
+            .background(C.bg000.copy(alpha = 0.55f), RoundedCornerShape(S.radiusLg))
+            .glass(RoundedCornerShape(S.radiusLg), 1.4f)
             .padding(start = S.s4, end = S.s4, top = S.s4, bottom = S.s4),
         verticalArrangement = Arrangement.spacedBy(S.s2),
     ) {

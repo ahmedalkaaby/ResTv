@@ -154,10 +154,15 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     fun connect(name: String, host: String, username: String, password: String) {
         if (_sync.value is SyncState.Running) return
+        // A whole playlist link pasted into Server fills all three.
+        val link = dev.k3be.restv.data.PhoneInput.parseXtreamLink(host)
+        val h = link?.first ?: host
+        val u = link?.second ?: username
+        val p = link?.third ?: password
         viewModelScope.launch {
             _sync.value = SyncState.Running("Connecting")
             try {
-                val probe = LoginEntity(accountId = 0, host = XtreamClient.normalizeHost(host), username = username.trim(), password = password)
+                val probe = LoginEntity(accountId = 0, host = XtreamClient.normalizeHost(h), username = u.trim(), password = p)
                 app.xtream.auth(probe)
                 val now = System.currentTimeMillis()
                 val accountId = app.db.accounts().insert(AccountEntity(name = name.trim().ifEmpty { "Me" }, lastUsedAt = now))
@@ -170,6 +175,30 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 if (_sync.value !is SyncState.Failed) _route.value = Route.Home
             } catch (e: Exception) {
                 _sync.value = SyncState.Failed(e.message ?: "Couldn't connect")
+            }
+        }
+    }
+
+    /** Changes the server, username or password of the current login, checks it, then refreshes. */
+    fun updateLogin(host: String, username: String, password: String, onDone: (String?) -> Unit) {
+        val current = _session.value ?: return
+        if (_sync.value is SyncState.Running) { onDone("A refresh is already running"); return }
+        val link = dev.k3be.restv.data.PhoneInput.parseXtreamLink(host)
+        viewModelScope.launch {
+            try {
+                val updated = current.login.copy(
+                    host = XtreamClient.normalizeHost(link?.first ?: host),
+                    username = (link?.second ?: username).trim(),
+                    password = link?.third ?: password,
+                )
+                app.xtream.auth(updated)
+                app.db.logins().update(updated)
+                _session.value = current.copy(login = updated)
+                app.art.login = updated
+                onDone(null)
+                runSync(updated)
+            } catch (e: Exception) {
+                onDone(e.message ?: "Couldn't connect with those details")
             }
         }
     }

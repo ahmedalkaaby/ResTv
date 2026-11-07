@@ -49,6 +49,21 @@ class Prefs(context: Context) {
         ?.mapNotNull { it.toLongOrNull() }?.takeIf { it.size == 2 }?.let { it[0] to it[1] }
     fun setIntro(seriesId: Long, start: Long, end: Long) { sp.edit().putString("intro_$seriesId", "$start,$end").apply() }
 
+    fun forgetIntro(seriesId: Long) { sp.edit().remove("intro_$seriesId").apply() }
+
+    /** Per show: jump over the intro by itself, and whether Restv should learn intros at all. */
+    fun autoSkipIntro(seriesId: Long): Boolean = sp.getBoolean("introAuto_$seriesId", false)
+    fun setAutoSkipIntro(seriesId: Long, on: Boolean) { sp.edit().putBoolean("introAuto_$seriesId", on).apply() }
+    fun introLearning(seriesId: Long): Boolean = sp.getBoolean("introLearn_$seriesId", true)
+    fun setIntroLearning(seriesId: Long, on: Boolean) { sp.edit().putBoolean("introLearn_$seriesId", on).apply() }
+
+    /** Forgets every learned intro and credits length, and the per-show switches. */
+    fun forgetAllIntros(): Int {
+        val keys = sp.all.keys.filter { it.startsWith("intro_") || it.startsWith("introAuto_") || it.startsWith("introLearn_") || it.startsWith("credits_") }
+        sp.edit().apply { keys.forEach { remove(it) } }.apply()
+        return keys.count { it.startsWith("intro_") }
+    }
+
     /** How long a series' end credits run (ms), learned from when you move on. */
     fun credits(seriesId: Long): Long = sp.getLong("credits_$seriesId", 40_000L)
     fun setCredits(seriesId: Long, ms: Long) { sp.edit().putLong("credits_$seriesId", ms.coerceIn(10_000L, 8 * 60_000L)).apply() }

@@ -33,6 +33,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -59,6 +60,8 @@ import dev.k3be.restv.ui.components.Icons
 import dev.k3be.restv.ui.components.ProgressBar
 import dev.k3be.restv.ui.components.TvButton
 import dev.k3be.restv.ui.components.Txt
+import dev.k3be.restv.ui.components.focusGlow
+import dev.k3be.restv.ui.components.glass
 import dev.k3be.restv.ui.components.remoteClickable
 import dev.k3be.restv.ui.theme.C
 import dev.k3be.restv.ui.theme.S
@@ -93,7 +96,7 @@ fun VersionPicker(options: List<VersionOption>, current: Long, onPick: (VersionO
     val first = remember { FocusRequester() }
     LaunchedEffect(Unit) { runCatching { first.requestFocus() } }
     Column(
-        modifier.width(420.dp).fillMaxHeight().background(C.bg100.copy(alpha = 0.98f))
+        modifier.padding(16.dp).width(420.dp).fillMaxHeight().background(C.bg000.copy(alpha = 0.6f), RoundedCornerShape(S.radiusLg)).glass(RoundedCornerShape(S.radiusLg), 1.4f)
             .padding(start = S.s6, end = S.safeX, top = S.safeY + 8.dp, bottom = S.safeY),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
@@ -484,7 +487,7 @@ private fun EpisodeCard(
                 .graphicsLayer { scaleX = scale; scaleY = scale }
                 .clip(shape)
                 .background(C.bg200)
-                .then(if (focused) Modifier.border(2.dp, C.focus, shape) else Modifier)
+                .border(1.5.dp, if (focused) Color.White.copy(alpha = 0.92f) else Color.White.copy(alpha = 0.06f), shape)
                 .focusRequester(fr)
                 .remoteClickable(source, onClick, onLongClick),
         ) {

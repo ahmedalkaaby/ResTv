@@ -81,7 +81,13 @@ private enum class Section(val label: String) {
 
 /** Sections on the left, the chosen one on the right: nothing to scroll through, inputs only on "Change". */
 @Composable
-fun SettingsScreen(session: Session, sync: SyncState, onSync: () -> Unit, onNavigate: (SidebarItem) -> Unit) {
+fun SettingsScreen(
+    session: Session,
+    sync: SyncState,
+    onSync: () -> Unit,
+    onNavigate: (SidebarItem) -> Unit,
+    onUpdateLogin: (String, String, String, (String?) -> Unit) -> Unit = { _, _, _, done -> done("Not available") },
+) {
     val app = LocalContext.current.applicationContext as RestvApp
     var section by rememberSaveable { mutableStateOf(Section.Updates) }
     val rows = remember { Section.entries.associateWith { FocusRequester() } }
@@ -112,7 +118,7 @@ fun SettingsScreen(session: Session, sync: SyncState, onSync: () -> Unit, onNavi
         ) {
             CompositionLocalProvider(LocalPane provides pane) { when (section) {
                 Section.Updates -> UpdatesPane(app)
-                Section.Account -> AccountPane(app, session, sync, onSync)
+                Section.Account -> AccountPane(app, session, sync, onSync, onUpdateLogin)
                 Section.Subtitles -> SecretPane(
                     title = "Arabic subtitles · SubDL",
                     help = "Movies and episodes get Arabic subtitles automatically. Get a free key: sign up at subdl.com, then subdl.com/panel/api. In the player, ▲ picks another subtitle, its size and timing.",
@@ -198,7 +204,9 @@ private fun UpdatesPane(app: RestvApp) {
 }
 
 @Composable
-private fun AccountPane(app: RestvApp, session: Session, sync: SyncState, onSync: () -> Unit) {
+private fun AccountPane(app: RestvApp, session: Session, sync: SyncState, onSync: () -> Unit, onUpdateLogin: (String, String, String, (String?) -> Unit) -> Unit) {
+    var phone by remember { mutableStateOf(false) }
+    var loginNote by remember { mutableStateOf<Pair<Boolean, String>?>(null) }
     val live = rememberLiveViewModel(session)
     val hidden by live.hiddenCount.collectAsStateWithLifecycle()
     val dateFmt = remember { SimpleDateFormat("d MMM yyyy", Locale.getDefault()) }
@@ -220,8 +228,27 @@ private fun AccountPane(app: RestvApp, session: Session, sync: SyncState, onSync
             enabled = sync !is SyncState.Running,
             onClick = onSync,
         )
+        dev.k3be.restv.ui.components.PhoneButton(label = "Edit login on phone") { phone = true }
         if (hidden > 0) TvButton("Show hidden categories ($hidden)", onClick = live::unhideAll)
     }
+    loginNote?.let { (ok, text) -> Txt(text, T.body, color = if (ok) C.success else C.danger, maxLines = 2) }
+    if (phone) dev.k3be.restv.ui.components.PhoneInputDialog(
+        title = "Edit your Xtream login",
+        fields = listOf(
+            dev.k3be.restv.data.PhoneInput.Field("link", "Whole playlist link (fills everything below)", ""),
+            dev.k3be.restv.data.PhoneInput.Field("host", "Server", session.login.host),
+            dev.k3be.restv.data.PhoneInput.Field("user", "Username", session.login.username),
+            dev.k3be.restv.data.PhoneInput.Field("pass", "Password", session.login.password, secret = true),
+        ),
+        onResult = { v ->
+            val link = v["link"].orEmpty()
+            loginNote = true to "Checking the new login…"
+            onUpdateLogin(if (link.isNotBlank()) link else v["host"].orEmpty(), v["user"].orEmpty(), v["pass"].orEmpty()) { err ->
+                loginNote = if (err == null) true to "✓ Login updated. Refreshing your library…" else false to "✗ $err"
+            }
+        },
+        onClose = { phone = false },
+    )
     if (sync is SyncState.Failed) Txt(sync.message, T.caption, color = C.danger, maxLines = 2)
 }
 
@@ -254,6 +281,7 @@ private fun SecretPane(
     var value by remember(title) { mutableStateOf(current ?: "") }
     var saved by remember(title) { mutableStateOf(current) }
     var health by remember(title) { mutableStateOf<KeyHealth>(KeyHealth.Unknown) }
+    var phone by remember(title) { mutableStateOf(false) }
     fun runCheck() {
         val k = saved ?: return
         val c = check ?: return
@@ -279,7 +307,20 @@ private fun SecretPane(
         Row(horizontalArrangement = Arrangement.spacedBy(S.s2)) {
             TvButton(if (saved == null) "Add" else "Change", primary = saved == null, modifier = Modifier.focusRequester(pane.primary).then(pane.back)) { editing = true }
             if (check != null && saved != null) TvButton(if (health == KeyHealth.Checking) "Checking…" else "Check") { runCheck() }
+            dev.k3be.restv.ui.components.PhoneButton { phone = true }
         }
+        if (phone) dev.k3be.restv.ui.components.PhoneInputDialog(
+            title = title,
+            fields = listOf(dev.k3be.restv.data.PhoneInput.Field("v", label, saved.orEmpty(), secret = true)),
+            onResult = { v ->
+                val newValue = v["v"].orEmpty()
+                onSave(newValue)
+                value = newValue
+                saved = newValue.trim().ifEmpty { null }
+                if (saved != null) runCheck() else health = KeyHealth.Unknown
+            },
+            onClose = { phone = false },
+        )
         extra?.invoke()
     } else {
         Column(Modifier.width(460.dp)) { TvTextField(label, value, { value = it }, Modifier.focusRequester(field).then(pane.back)) }
@@ -313,6 +354,12 @@ private fun PlayerPane(app: RestvApp) {
         }
     }
     Txt("This TV reports: ${displayHdr(context) ?: "no HDR formats"}", T.body, color = C.inkFaint, modifier = Modifier.padding(top = S.s4))
+    var cleared by remember { mutableStateOf<String?>(null) }
+    Txt("Skip intro and Next episode learn each show's intro and credits. Per show, manage them in the player under ▲ → Intro.", T.body, color = C.inkMuted, maxLines = 2, modifier = Modifier.padding(top = S.s3))
+    Row(horizontalArrangement = Arrangement.spacedBy(S.s2), verticalAlignment = Alignment.CenterVertically) {
+        TvButton("Forget all saved intros") { cleared = "Forgot ${app.prefs.forgetAllIntros()} saved intros" }
+        cleared?.let { Txt(it, T.body, color = C.success) }
+    }
 }
 
 @Composable

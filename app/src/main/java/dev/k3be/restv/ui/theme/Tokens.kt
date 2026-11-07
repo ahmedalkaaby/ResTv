@@ -42,9 +42,9 @@ object S {
     val s8 = 32.dp
     val safeX = 48.dp
     val safeY = 27.dp
-    val radiusSm = 6.dp
-    val radiusMd = 10.dp
-    val radiusLg = 16.dp
+    val radiusSm = 8.dp
+    val radiusMd = 14.dp
+    val radiusLg = 24.dp
 }
 
 /** Manrope is planned; Roboto (system) until the font is bundled. */

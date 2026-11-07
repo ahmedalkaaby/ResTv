@@ -350,13 +350,29 @@ fun VodPlayerScreen(
         val from = fwdFrom ?: return@LaunchedEffect
         fwdFrom = null
         val to = player.currentPosition
-        if (isEpisode && to - from in 20_000..240_000 && to <= 9 * 60_000) {
+        if (isEpisode && app.prefs.introLearning(item.seriesId) && to - from in 20_000..240_000 && to <= 9 * 60_000) {
             app.prefs.setIntro(item.seriesId, from, to)
             intro = from to to
-            notice = "Intro learned: “Skip intro” will appear on the next episodes"
+            notice = "Intro saved for this show · change it under ▲ → More"
         }
     }
-    val showSkipIntro = intro?.let { (a, b) -> position in (a - 2_000)..(b - 4_000) } == true
+    // The Skip intro button: offered for 10 s when the intro starts, taken with ▶ (OK always pauses),
+    // dismissed with Back. With auto-skip on, it jumps by itself.
+    val inIntro = intro?.let { (a, b) -> position in (a - 2_000)..(b - 4_000) } == true
+    var introDismissed by remember(index) { mutableStateOf(false) }
+    var introOffer by remember(index) { mutableStateOf(false) }
+    LaunchedEffect(inIntro) {
+        if (!inIntro) { introOffer = false; return@LaunchedEffect }
+        if (app.prefs.autoSkipIntro(item.seriesId)) {
+            intro?.let { player.seekTo(it.second) }
+            notice = "Skipped the intro"
+            return@LaunchedEffect
+        }
+        introOffer = true
+        delay(10_000)
+        introOffer = false
+    }
+    val showSkipIntro = inIntro && introOffer && !introDismissed
 
     val focus = remember { FocusRequester() }
     LaunchedEffect(panelOpen) { if (!panelOpen) runCatching { focus.requestFocus() } }
@@ -366,6 +382,7 @@ fun VodPlayerScreen(
     BackHandler {
         when {
             panelOpen -> panelOpen = false
+            showSkipIntro -> introDismissed = true
             nextPrompt -> {
                 // Keep watching: the credits started later than thought, so next time ask later.
                 nextPrompt = false
@@ -410,13 +427,16 @@ fun VodPlayerScreen(
                 val step = when { repeat < 3 -> 10_000L; repeat < 12 -> 30_000L; else -> 60_000L }
                 when (ev.key) {
                     Key.DirectionLeft, Key.MediaRewind -> { seek(-step); true }
-                    Key.DirectionRight, Key.MediaFastForward -> { seek(step); true }
+                    Key.DirectionRight, Key.MediaFastForward -> {
+                        if (showSkipIntro && repeat == 0) { intro?.let { player.seekTo(it.second) }; introDismissed = true; overlayToken++ }
+                        else seek(step)
+                        true
+                    }
                     Key.DirectionCenter, Key.Enter, Key.NumPadEnter, Key.MediaPlayPause -> {
                         if (repeat > 0) return@onKeyEvent true
                         when {
                             error != null -> { error = null; retries = 0; player.prepare(); player.play() }
                             nextPrompt && hasNext -> nextNow()
-                            showSkipIntro -> { intro?.let { player.seekTo(it.second) }; overlayToken++ }
                             player.isPlaying -> { player.pause(); overlayToken++ }
                             else -> { player.play(); overlayToken++ }
                         }
@@ -529,7 +549,7 @@ fun VodPlayerScreen(
 
         if (showSkipIntro && !panelOpen) {
             Txt(
-                "Skip intro  ·  OK", T.label, color = C.focusInk,
+                "Skip intro  ▶", T.label, color = C.focusInk,
                 modifier = Modifier.align(Alignment.BottomEnd).padding(end = S.safeX, bottom = S.safeY + 110.dp)
                     .background(C.focus, RoundedCornerShape(S.radiusMd)).padding(horizontal = 18.dp, vertical = 10.dp),
             )
@@ -577,11 +597,31 @@ fun VodPlayerScreen(
                 add(PanelRow("Picture: ${fit.label}", onClick = { fit = Fit.entries[(fit.ordinal + 1) % Fit.entries.size] }, keepOpen = true))
                 if (hasNext) add(PanelRow("Next episode ▸", onClick = { panelOpen = false; nextNow() }))
             }
+            // Intro management for this show.
+            val introRows = if (!isEpisode) emptyList() else buildList {
+                val sid = item.seriesId
+                val iv = intro
+                if (iv != null) {
+                    add(PanelRow("Saved intro ${clock(iv.first)} – ${clock(iv.second)}", note = true))
+                    add(PanelRow("Skip automatically: ${if (app.prefs.autoSkipIntro(sid)) "On" else "Off"}",
+                        onClick = { app.prefs.setAutoSkipIntro(sid, !app.prefs.autoSkipIntro(sid)); overlayToken++ }, keepOpen = true))
+                    add(PanelRow("Forget this intro", onClick = { app.prefs.forgetIntro(sid); intro = null; notice = "Intro forgotten for this show" }))
+                } else {
+                    add(PanelRow(
+                        if (app.prefs.introLearning(sid)) "No intro saved. Skip it once with ▶▶ near the start and it's offered on the next episodes."
+                        else "Intro learning is off for this show.",
+                        note = true,
+                    ))
+                }
+                add(PanelRow("Learn intros: ${if (app.prefs.introLearning(sid)) "On" else "Off"}",
+                    onClick = { app.prefs.setIntroLearning(sid, !app.prefs.introLearning(sid)); overlayToken++ }, keepOpen = true))
+            }
             AvPanel(
                 audio = audioRows,
                 subtitles = subRows,
                 timing = timingRows,
                 more = moreRows,
+                intro = introRows,
                 onClose = { panelOpen = false },
                 modifier = Modifier.align(Alignment.BottomCenter),
             )
@@ -633,6 +673,7 @@ private fun AvPanel(
     subtitles: List<PanelRow>,
     timing: List<PanelRow>,
     more: List<PanelRow>,
+    intro: List<PanelRow> = emptyList(),
     onClose: () -> Unit,
     modifier: Modifier,
 ) {
@@ -647,6 +688,7 @@ private fun AvPanel(
         PanelColumn("Audio", audio, null, onClose, Modifier.weight(1f))
         PanelColumn("Subtitles", subtitles, start, onClose, Modifier.weight(1.3f))
         PanelColumn("Subtitle style", timing, null, onClose, Modifier.weight(1f))
+        if (intro.isNotEmpty()) PanelColumn("Intro", intro, null, onClose, Modifier.weight(1f))
         PanelColumn("More", more, null, onClose, Modifier.weight(0.8f))
     }
 }

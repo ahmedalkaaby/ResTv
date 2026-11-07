@@ -152,7 +152,7 @@ fun AppRoot(vm: AppViewModel = viewModel()) {
                 )
             }
             Route.Settings -> session?.let { s ->
-                SettingsScreen(session = s, sync = sync, onSync = vm::syncNow, onNavigate = navigate)
+                SettingsScreen(session = s, sync = sync, onSync = vm::syncNow, onNavigate = navigate, onUpdateLogin = vm::updateLogin)
             }
             Route.Movies, Route.Series -> session?.let { s ->
                 val kind = if (r == Route.Movies) "movie" else "series"
