@@ -189,6 +189,9 @@ class LiveViewModel(
     var categoryScrollIndex: Int = 0
 
     /** Remembered so focus returns to the same channel after the player closes. */
+    /** Last focused channel per category, so each category reopens where you left it. */
+    val lastInCategory = HashMap<String, Long>()
+
     var lastFocusedStreamId: Long? = null
         private set
 
@@ -224,6 +227,7 @@ class LiveViewModel(
 
     fun focusChannel(row: ChannelRow, neighbours: List<ChannelRow>) {
         lastFocusedStreamId = row.streamId
+        _selected.value?.let { lastInCategory[it] = row.streamId }
         _preview.value = Preview(row, app.epg.peek(row.streamId))
         epgJob?.cancel()
         epgJob = viewModelScope.launch {

@@ -36,6 +36,18 @@ class VodTest {
         assertEquals("EN  ·  4K  ·  MKV  ·  Netflix Movies", dev.k3be.restv.ui.vod.versionDetail("Dune", 3, "mkv", "EN | Netflix Movies"))
     }
 
+    @Test fun versionPreference() {
+        fun pick(vararg v: Pair<String?, Int>) = VodNaming.pickVersion(v.toList(), { it.first }, { it.second })
+        // English 4K, then English 1080p, ahead of Arabic subtitles in 4K.
+        assertEquals("EN" to 3, pick("AR SUBS" to 3, "EN" to 2, "EN" to 3, "AR" to 3))
+        assertEquals("EN" to 2, pick("AR SUBS" to 3, "EN" to 2, "EN" to 1))
+        // No English: Arabic subtitles, then anything.
+        assertEquals("AR SUBS" to 1, pick("FR" to 3, "AR SUBS" to 1))
+        // Arabic or Turkish (dubbed) shows: Arabic, best picture first.
+        assertEquals("AR" to 3, pick("TR" to 3, "AR" to 1, "AR" to 3, "AR SUBS" to 3))
+        assertEquals("AR" to 1, pick("TR" to 3, "AR" to 1))
+    }
+
     @Test fun keysMatchAcrossSources() {
         assertEquals(VodNaming.key("The Godfather"), VodNaming.key("Godfather"))
         assertEquals(VodNaming.key("Amélie"), VodNaming.key("Amelie"))

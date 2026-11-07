@@ -166,7 +166,8 @@ fun ChannelGrid(
                         // LEFT from the first column goes back to the category you came from.
                         if (ev.type == KeyEventType.KeyDown && ev.key == Key.DirectionLeft && index % columns == 0) {
                             onLeftEdge(); true
-                        } else false
+                        // Holding Up stops at the top row; a fresh press there goes on to the top bar.
+                        } else ev.type == KeyEventType.KeyDown && ev.key == Key.DirectionUp && index < columns && ev.nativeKeyEvent.repeatCount > 0
                     },
                 onFocus = { onFocus(index) },
                 onClick = { onPlay(index) },

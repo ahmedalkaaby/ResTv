@@ -175,7 +175,10 @@ class MatchesRepo(
                 code !in knownCountryCodes || code in allowed
             }
             if (hits.isEmpty()) { missing += name; continue }
-            for (ch in hits) {
+            // The same channel often comes from 10+ sources: keep the best three of each, 4K first.
+            val best = hits.groupBy { core(Naming.cleanChannelName(it.rawName)) }.values
+                .flatMap { copies -> copies.sortedByDescending { it.quality }.take(3) }
+            for (ch in best) {
                 found[ch.streamId] = ch
                 val list = countries.getOrPut(ch.streamId) { ArrayList() }
                 val label = countryLabels.getValue(country)
@@ -304,21 +307,27 @@ class MatchesRepo(
     private fun lookup(idx: Index, broadcaster: String): List<ChannelEntity> {
         val target = core(broadcaster)
         if (target.isEmpty() || target in never) return emptyList()
+        // Exact name: "beIN Sports 3" ↔ "AR: beIN SP⚽RTS 3 HD". This is the rule for every network
+        // (beIN, Sky, Movistar, DAZN…): a general name like "beIN SPORTS" or "Movistar+" must not pull
+        // in every channel of that family (beIN 1–9, Movistar Acción, Sky Family…).
         idx.byCore[target]?.let { return it }
-        if (target.length < 3) return emptyList()
+        // Only streaming services listed by app name ("STARZPLAY", "Shahid VIP") stand for their
+        // numbered sports channels; spelling is folded for them ("Thamanya", "ALMANASA").
+        val sk = skeleton(target)
+        if (appBrands.none { sk.startsWith(it) }) return emptyList()
         val prefix = idx.byCore.filterKeys { it.startsWith("$target ") }.values.flatten()
         if (prefix.isNotEmpty()) return sportsFirst(prefix)
-        val sk = skeleton(target)
-        if (sk.length < 3 || target.replace(" ", "").length < 5) return emptyList()
         idx.bySkeleton[sk]?.let { return sportsFirst(it) }
         val loose = idx.bySkeleton.filterKeys { it.startsWith(sk) && it.length > sk.length && it[sk.length].isDigit() || it.startsWith(sk + "sp") }.values.flatten()
         return sportsFirst(loose)
     }
 
+    /** Services named by their app that carry several numbered sports channels. */
+    private val appBrands = listOf("shahid", "starzplay", "thmanyah", "al manassa", "manasa", "jawwy", "stc tv").map { skeleton(it) }
+
     private fun sportsFirst(list: List<ChannelEntity>): List<ChannelEntity> {
-        if (list.size <= 6) return list
-        val sports = list.filter { "sport" in it.name.lowercase() }
-        return sports.ifEmpty { list }
+        val sports = list.filter { "sport" in it.name.lowercase() || "رياض" in it.name }
+        return sports.ifEmpty { list.take(6) }
     }
 
     /** Spelling-insensitive form: no spaces, "al/el" prefixes, vowels after the first letter, doubles or final h. */

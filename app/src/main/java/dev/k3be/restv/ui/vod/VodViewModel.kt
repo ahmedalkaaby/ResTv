@@ -206,7 +206,7 @@ class VodViewModel(
         categoryCards.value = categoryCards.value + (railId to emptyList())
         viewModelScope.launch {
             val id = railId.removePrefix("cat:")
-            val cards = if (isMovie) app.db.vod().moviesIn(loginId, id, 40).map { it.card() } else app.db.vod().seriesIn(loginId, id, 40).map { it.card() }
+            val cards = dedupe(if (isMovie) app.db.vod().moviesIn(loginId, id, 120).map { it.card() } else app.db.vod().seriesIn(loginId, id, 120).map { it.card() }).take(40)
             categoryCards.value = categoryCards.value + (railId to cards)
         }
     }
@@ -230,7 +230,7 @@ class VodViewModel(
             dedupe(if (isMovie) app.db.vod().moviesOnPlatform(loginId, p, 2000).map { it.card() } else app.db.vod().seriesOnPlatform(loginId, p, 2000).map { it.card() })
         }
         railId.startsWith("cat:") -> railId.removePrefix("cat:").let { id ->
-            if (isMovie) app.db.vod().moviesIn(loginId, id, 5000).map { it.card() } else app.db.vod().seriesIn(loginId, id, 5000).map { it.card() }
+            dedupe(if (isMovie) app.db.vod().moviesIn(loginId, id, 5000).map { it.card() } else app.db.vod().seriesIn(loginId, id, 5000).map { it.card() })
         }
         else -> emptyList()
     }
@@ -239,7 +239,7 @@ class VodViewModel(
     private fun dedupe(cards: List<VodCard>): List<VodCard> {
         val groups = cards.groupBy { VodNaming.key(it.title) + "|" + (it.year ?: "") }
         val best = groups.values.associate { g ->
-            val b = g.maxBy { it.quality }
+            val b = VodNaming.pickVersion(g, { it.source }, { it.quality })
             b.id to b.copy(otherSources = g.filter { it.id != b.id }.mapNotNull { it.source }.distinct().filter { it != b.source })
         }
         return cards.mapNotNull { best[it.id] }

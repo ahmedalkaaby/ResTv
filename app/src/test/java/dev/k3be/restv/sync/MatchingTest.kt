@@ -41,4 +41,21 @@ class MatchingTest {
             found,
         )
     }
+
+    @Test fun generalNamesDontPullWholeFamilies() = runBlocking {
+        val ctx = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val db = Room.inMemoryDatabaseBuilder(ctx, AppDatabase::class.java).allowMainThreadQueries().build()
+        val names = (1..9).map { "AR: beIN SPORTS $it HD" } + listOf(
+            "Movistar Accion", "Movistar Comedia", "Sky Family", "Sky Go Filme",
+            "Sky Sports Main Event 4K", "SKY SPORTS MAIN EVENT FHD", "Sky Sports Main Event HD", "Sky Sports Main Event SD",
+        )
+        db.live().insertChannels(names.mapIndexed { i, raw ->
+            ChannelEntity(1, i.toLong(), i, raw, Naming.cleanChannelName(raw), "c", null, null, false, Naming.quality(raw), Naming.variantKey(raw))
+        })
+        val repo = MatchesRepo(OkHttpClient(), Json, db, Prefs(ctx), ctx.filesDir)
+        val m = Match("y", null, "Premier League", "A", "B", listOf("beIN SPORTS MENA", "Movistar+", "Sky Go", "Sky Sports Main Event"))
+        val found = repo.coverage(1, m).channels.map { it.rawName }.toSet()
+        // Only the three best copies of the channel actually named; no beIN 1–9, Movistar films or Sky Family.
+        assertEquals(setOf("Sky Sports Main Event 4K", "SKY SPORTS MAIN EVENT FHD", "Sky Sports Main Event HD"), found)
+    }
 }

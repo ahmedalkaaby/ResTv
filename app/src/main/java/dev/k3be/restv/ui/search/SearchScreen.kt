@@ -78,7 +78,7 @@ fun SearchScreen(
         if (q.length < 2) { results = emptyList(); movies = emptyList(); shows = emptyList(); return@LaunchedEffect }
         delay(250) // wait for typing to pause
         movies = app.db.vod().searchMovies(session.login.id, q)
-            .groupBy { it.titleKey + "|" + (it.year ?: "") }.values.map { g -> g.maxBy { it.quality } }
+            .groupBy { it.titleKey + "|" + (it.year ?: "") }.values.map { g -> dev.k3be.restv.data.VodNaming.pickVersion(g, { dev.k3be.restv.data.VodNaming.source(it.rawName) }, { it.quality }) }
             .map { VodCard("movie", it.streamId, it.name, it.year, it.poster, it.rating, it.quality) }
         shows = app.db.vod().searchSeries(session.login.id, q)
             .map { VodCard("series", it.seriesId, it.name, it.year, it.poster, it.rating) }

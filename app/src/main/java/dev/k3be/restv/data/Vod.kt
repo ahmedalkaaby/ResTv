@@ -152,6 +152,7 @@ class VodRepo(
         return titles.mapNotNull { t ->
             val list = (found[VodNaming.key(t.title)].orEmpty() + t.originalTitle?.let { found[VodNaming.key(it)] }.orEmpty())
             val best = pick(list, t.year, { it.year }, compareByDescending<MovieEntity> { it.quality }.thenByDescending { it.added })
+                ?.let { first -> VodNaming.pickVersion(list.filter { it.titleKey == first.titleKey && it.year == first.year }.ifEmpty { listOf(first) }, { VodNaming.source(it.rawName) }, { it.quality }) }
             best?.takeIf { seen.add(it.streamId) }?.let { it to t }
         }
     }

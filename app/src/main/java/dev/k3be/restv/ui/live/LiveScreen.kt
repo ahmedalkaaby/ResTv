@@ -161,7 +161,9 @@ fun LiveScreen(
             delay(260) // let a just-selected category's channels load
             val list = currentChannels
             if (list.isEmpty()) return@launch
-            val last = vm.lastFocusedStreamId
+            // The channel you were on in THIS category, else its first channel (not a channel you
+            // happened to visit from another category that also lists it).
+            val last = vm.lastInCategory[selected]
             val idx = list.indexOfFirst { it.streamId == last }.takeIf { it >= 0 } ?: 0
             gridState.scrollToItem(idx)
             withFrameNanos { }
@@ -300,6 +302,10 @@ private fun CategoriesPane(
                                 .onPreviewKeyEvent { ev ->
                                     if (!isMoving && movingId == null && ev.type == KeyEventType.KeyDown && ev.key == Key.DirectionRight) {
                                         onRight(); return@onPreviewKeyEvent true
+                                    }
+                                    // Holding Up to scroll fast stops at the first category; a fresh press goes to the top bar.
+                                    if (index == 0 && ev.type == KeyEventType.KeyDown && ev.key == Key.DirectionUp && ev.nativeKeyEvent.repeatCount > 0) {
+                                        return@onPreviewKeyEvent true
                                     }
                                     if (!isMoving || ev.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                                     when (ev.key) {

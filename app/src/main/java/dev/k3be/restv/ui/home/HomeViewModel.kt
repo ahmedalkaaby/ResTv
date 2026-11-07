@@ -150,7 +150,7 @@ class HomeViewModel(
 
     /** One card per title (the same film sits in several categories and qualities). */
     private fun dedupe(cards: List<VodCard>) = cards.groupBy { it.kind + VodNaming.key(it.title) + (it.year ?: "") }
-        .values.map { g -> g.maxBy { it.quality } }.let { best -> val ids = best.map { it.id }.toSet(); cards.filter { it.id in ids }.distinctBy { it.kind + it.id } }
+        .values.map { g -> VodNaming.pickVersion(g, { it.source }, { it.quality }) }.let { best -> val ids = best.map { it.id }.toSet(); cards.filter { it.id in ids }.distinctBy { it.kind + it.id } }
 
     fun loadExtras() {
         viewModelScope.launch {

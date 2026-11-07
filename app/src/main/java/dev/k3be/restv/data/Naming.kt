@@ -187,6 +187,30 @@ object VodNaming {
             .joinToString("")
     }
 
+    /**
+     * Which copy of a title to show when the provider has several:
+     * - with an English version: EN (4K, then 1080p, …), untagged, then Arabic subtitles, then the rest;
+     * - otherwise with an Arabic version (Arabic shows, Turkish dubbed): AR first, then Arabic subtitles;
+     * - otherwise Arabic subtitles, then anything.
+     * Within the same language, the best picture wins.
+     */
+    fun <T> pickVersion(items: List<T>, source: (T) -> String?, quality: (T) -> Int): T {
+        if (items.size == 1) return items.first()
+        fun lang(t: T) = source(t)?.substringBefore(' ')?.uppercase()
+        fun subs(t: T) = source(t)?.contains("SUB") == true
+        val hasEn = items.any { lang(it) == "EN" && !subs(it) }
+        val hasAr = items.any { lang(it) == "AR" && !subs(it) }
+        fun tier(t: T): Int {
+            val l = lang(t); val sub = subs(t); val arSubs = l == "AR" && sub
+            return when {
+                hasEn -> when { l == "EN" && !sub -> 0; l == null -> 1; arSubs -> 2; else -> 3 }
+                hasAr -> when { l == "AR" && !sub -> 0; arSubs -> 1; l == null -> 2; else -> 3 }
+                else -> when { arSubs -> 0; l == null -> 1; else -> 2 }
+            }
+        }
+        return items.minWith(compareBy<T> { tier(it) }.thenByDescending { quality(it) })
+    }
+
     /** Streaming platform of a category name, in the order they're shown. */
     val platforms = listOf("Apple TV+", "Netflix", "Disney+", "HBO", "OSN+")
 

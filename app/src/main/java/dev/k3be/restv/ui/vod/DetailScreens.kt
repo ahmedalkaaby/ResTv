@@ -153,7 +153,8 @@ fun MovieDetailScreen(
             .filter { it.year == null || m.year == null || it.year == m.year }
             .sortedWith(compareByDescending<MovieEntity> { it.quality }.thenBy { it.streamId })
         // The version picked last time wins over whichever copy the poster pointed at.
-        app.prefs.chosenVersion("movie", m.titleKey)?.takeIf { c -> versions.any { it.streamId == c } }?.let { chosen = it }
+        chosen = app.prefs.chosenVersion("movie", m.titleKey)?.takeIf { c -> versions.any { it.streamId == c } }
+            ?: VodNaming.pickVersion(versions.ifEmpty { listOf(m) }, { VodNaming.source(it.rawName, cats[it.categoryId]) }, { it.quality }).streamId
         movie = m
     }
     LaunchedEffect(chosen) {

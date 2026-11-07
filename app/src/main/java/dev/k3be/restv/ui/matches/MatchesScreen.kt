@@ -39,8 +39,6 @@ import androidx.compose.foundation.layout.size
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.sync.Semaphore
-import kotlinx.coroutines.sync.withPermit
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.foundation.layout.Box
 import androidx.compose.ui.unit.Dp
@@ -120,17 +118,7 @@ fun MatchesScreen(
     LaunchedEffect(load) {
         val l = load as? Load.Ready ?: return@LaunchedEffect
         if (selected == null) runCatching { firstMatch.requestFocus() }
-        // Look up your leagues' matches in the background so the list shows real channel counts and crests.
-        val gate = Semaphore(2)
-        coroutineScope {
-            // Only your leagues' matches that are live or start in the next 12 hours: fewer pages to load.
-            val now = System.currentTimeMillis()
-            l.matches.filter { app.matches.priority(it) < 99 && (it.kickoff == null || it.kickoff in (now - 150 * 60_000)..(now + 12 * 3_600_000)) }
-                .take(16).forEach { m ->
-                if (m.id in covered) return@forEach
-                launch { gate.withPermit { runCatching { covered[m.id] = app.matches.coverage(session.login.id, m) } } }
-            }
-        }
+        // Channels load only for the match you're on (below); nothing runs in the background.
     }
     LaunchedEffect(selected) {
         val m = selected ?: return@LaunchedEffect
@@ -138,7 +126,7 @@ fun MatchesScreen(
         if (ready == null) {
             rows = emptyList()
             looking = true
-            delay(350) // scrolling past matches shouldn't load every page
+            delay(600) // scrolling past matches shouldn't load every page
         }
         val c = ready ?: app.matches.coverage(session.login.id, m).also { covered[m.id] = it }
         rows = groupVariants(c.channels).sortedWith(

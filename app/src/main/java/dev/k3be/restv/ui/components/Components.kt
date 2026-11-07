@@ -158,9 +158,9 @@ fun Modifier.glass(shape: androidx.compose.ui.graphics.Shape, strength: Float = 
     )
     .border(1.dp, Color.White.copy(alpha = 0.13f), shape)
 
-/** A soft white glow around something focused, instead of a hard ring. */
+/** A faint lift for something focused: a low, dark shadow, no white glare underneath. */
 fun Modifier.focusGlow(focused: Boolean, shape: androidx.compose.ui.graphics.Shape): Modifier =
-    if (!focused) this else this.shadow(22.dp, shape, clip = false, ambientColor = Color.White, spotColor = Color.White)
+    if (!focused) this else this.shadow(8.dp, shape, clip = false, ambientColor = Color.Black, spotColor = Color.Black)
 
 /** Buttons: frosted pills; primary amber; any focused button becomes a glowing white fill. */
 @Composable
