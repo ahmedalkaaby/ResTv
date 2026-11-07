@@ -18,6 +18,7 @@ import dev.k3be.restv.ui.vod.VodCard
 import dev.k3be.restv.ui.vod.left
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
 @Composable
@@ -56,8 +57,36 @@ class HomeViewModel(
     /** Variety rows: best rated, 4K, Arabic, kids, a few genres, and a daily mix. */
     val extra: StateFlow<List<dev.k3be.restv.ui.vod.Rail>> = _extra
 
+    private val _matchDay = MutableStateFlow<List<MatchDay>>(emptyList())
+    /** Today's matches of the teams picked in Settings, earliest first; finished ones drop off. */
+    val matchDay: StateFlow<List<MatchDay>> = _matchDay
+
+    private fun publish(all: List<dev.k3be.restv.data.Match>) {
+        val now = System.currentTimeMillis()
+        _matchDay.value = all.filter { app.matches.isFavorite(it) && !isOver(it, now) }
+            .sortedBy { it.kickoff ?: Long.MAX_VALUE }
+            .map { MatchDay(it, app.matches.logoFor(it, home = true), app.matches.logoFor(it, home = false)) }
+    }
+
     init {
         loadExtras()
+        viewModelScope.launch {
+            app.prefs.favoriteTeams.collectLatest { favs ->
+                if (favs.isEmpty()) { _matchDay.value = emptyList(); return@collectLatest }
+                val date = java.time.LocalDate.now().toString()
+                app.matches.cached(date)?.let { publish(it.matches) }
+                runCatching { app.matches.fetch(date) }.getOrNull()?.let { publish(it.matches) }
+                // Crests from each match page (national teams have none in the schedule); this also
+                // gets the channels ready for when you press OK.
+                for (d in _matchDay.value) {
+                    if (d.homeLogo != null && d.awayLogo != null) continue
+                    val c = runCatching { app.matches.coverage(loginId, d.match) }.getOrNull() ?: continue
+                    _matchDay.value = _matchDay.value.map {
+                        if (it.match.id == d.match.id) it.copy(homeLogo = c.homeLogo ?: it.homeLogo, awayLogo = c.awayLogo ?: it.awayLogo) else it
+                    }
+                }
+            }
+        }
         viewModelScope.launch {
             app.db.watch().observeRecent(accountId, loginId).collect { buildContinue(it) }
         }

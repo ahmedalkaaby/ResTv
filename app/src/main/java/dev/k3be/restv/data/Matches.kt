@@ -158,31 +158,39 @@ class MatchesRepo(
 
     suspend fun coverage(loginId: Long, match: Match): Coverage = withContext(Dispatchers.IO) {
         val detail = match.url?.let { url -> runCatching { detail(match.id, url, match.home, match.away) }.getOrNull() }
-        // (country key, broadcaster name), only from the countries the user watches.
-        val pairs = LinkedHashSet<Pair<String, String>>()
-        detail?.coverage?.forEach { (country, name) -> countryKey(country)?.let { pairs += it to name } }
+        // (country, broadcaster name), only from the countries the user watches.
+        val pairs = LinkedHashSet<Pair<Broadcasters.Country, String>>()
+        detail?.coverage?.forEach { (country, name) -> countryOf(country)?.let { pairs += it to name } }
         // The schedule page lists the viewer's own region (Iraq) — Shahid, STARZPLAY, Thmanyah… — add it too.
-        match.broadcasters.forEach { pairs += "iraq" to it }
+        match.broadcasters.forEach { pairs += iraq to it }
 
         val idx = index(loginId)
+        val comp = Broadcasters.competition(match.league, match.competition)
         val found = LinkedHashMap<Long, ChannelEntity>()
         val countries = HashMap<Long, MutableList<String>>()
         val missing = LinkedHashSet<String>()
-        for ((country, name) in pairs) {
-            val allowed = countryCodes.getValue(country)
-            val hits = lookup(idx, name).filter { ch ->
-                val code = Naming.split(ch.rawName).code
-                code !in knownCountryCodes || code in allowed
-            }
-            if (hits.isEmpty()) { missing += name; continue }
-            // The same channel often comes from 10+ sources: keep the best three of each, 4K first.
-            val best = hits.groupBy { core(Naming.cleanChannelName(it.rawName)) }.values
-                .flatMap { copies -> copies.sortedByDescending { it.quality }.take(3) }
-            for (ch in best) {
-                found[ch.streamId] = ch
-                val list = countries.getOrPut(ch.streamId) { ArrayList() }
-                val label = countryLabels.getValue(country)
-                if (label !in list) list += label
+        // Per country: named channels first ("Sky Sports Main Event"), then network names ("Sky Go"),
+        // which are skipped when that network's channel is already known for the country.
+        for ((country, list) in pairs.groupBy({ it.first }, { it.second })) {
+            val (generic, named) = list.partition { Broadcasters.brand(country, core(it)) != null }
+            val inCountry = ArrayList<ChannelEntity>()
+            for (name in named + generic) {
+                val brand = Broadcasters.brand(country, core(name))
+                if (brand != null && inCountry.any { ch -> brand.anyRx.any { it.matches(core(Naming.cleanChannelName(ch.rawName))) } }) continue
+                val hits = resolve(idx, country, name, comp).filter { ch ->
+                    val code = Naming.split(ch.rawName).code
+                    code !in knownCountryCodes || code in country.codes
+                }
+                if (hits.isEmpty()) { missing += name; continue }
+                // The same channel often comes from 10+ sources: keep the best three of each, 4K first.
+                val best = hits.groupBy { core(Naming.cleanChannelName(it.rawName)) }.values
+                    .flatMap { copies -> copies.sortedByDescending { it.quality }.take(3) }
+                inCountry += best
+                for (ch in best) {
+                    found[ch.streamId] = ch
+                    val labels = countries.getOrPut(ch.streamId) { ArrayList() }
+                    if (country.label !in labels) labels += country.label
+                }
             }
         }
         if (detail != null) {
@@ -197,47 +205,36 @@ class MatchesRepo(
         )
     }
 
-    // ---- Countries the user follows. Provider prefixes from other countries are a different feed
-    // (beIN Sports 3 Australia is not beIN Sports 3 MENA), so those are skipped.
+    /** Channels for one broadcaster in one country; public for tests. */
+    suspend fun channelsFor(loginId: Long, country: String, broadcaster: String, league: String?, competition: String?): List<ChannelEntity> {
+        val c = countryOf(country) ?: return emptyList()
+        return resolve(index(loginId), c, broadcaster, Broadcasters.competition(league, competition)).filter { ch ->
+            val code = Naming.split(ch.rawName).code
+            code !in knownCountryCodes || code in c.codes
+        }
+    }
 
-    private val countryNames = mapOf(
-        "iraq" to "iraq",
-        "great britain" to "uk", "united kingdom" to "uk", "england" to "uk", "uk" to "uk",
-        "usa" to "us", "united states" to "us", "united states of america" to "us", "us" to "us",
-        "spain" to "spain", "finland" to "finland", "sweden" to "sweden", "germany" to "germany",
-        "italy" to "italy", "france" to "france", "saudi arabia" to "saudi", "canada" to "canada",
-    )
-
-    private fun countryKey(name: String): String? = countryNames[name.trim().lowercase()]
-
-    private val countryLabels = mapOf(
-        "iraq" to "Iraq", "uk" to "UK", "us" to "US", "spain" to "Spain", "finland" to "Finland",
-        "sweden" to "Sweden", "germany" to "Germany", "italy" to "Italy", "france" to "France",
-        "saudi" to "Saudi Arabia", "canada" to "Canada",
-    )
+    // ---- Countries the user follows: the UK, the US, Canada, Europe (Broadcasters) and the Arab region.
+    // Provider prefixes from other countries are a different feed (beIN Sports 3 Australia is not
+    // beIN Sports 3 MENA), so those are skipped.
 
     private val arabCodes = setOf("AR", "ARB", "ARA", "IQ", "KU", "KRD", "MENA", "SA", "KSA", "AE", "UAE", "QA", "KW", "JO", "BH", "OM")
+    private val iraq = Broadcasters.Country("iraq", "Iraq", listOf("iraq"), arabCodes, emptyList())
+    private val saudi = Broadcasters.Country("saudi", "Saudi Arabia", listOf("saudi arabia"), arabCodes, emptyList())
 
-    private val countryCodes = mapOf(
-        "iraq" to arabCodes,
-        "saudi" to arabCodes,
-        "uk" to setOf("UK", "GB", "EN", "ENG"),
-        "us" to setOf("US", "USA", "EN"),
-        "canada" to setOf("CA", "CAN", "EN"),
-        "spain" to setOf("ES", "SP", "ESP"),
-        "finland" to setOf("FI", "FIN"),
-        "sweden" to setOf("SE", "SW", "SWE"),
-        "germany" to setOf("DE", "GER"),
-        "italy" to setOf("IT", "ITA"),
-        "france" to setOf("FR", "FRA"),
-    )
+    private fun countryOf(name: String): Broadcasters.Country? = when (Broadcasters.fold(name).trim().lowercase()) {
+        "iraq" -> iraq
+        "saudi arabia" -> saudi
+        else -> Broadcasters.country(name)
+    }
 
     /** Prefixes that name a country. Anything else ("NM", "SS", "VIP") is a provider tag and is allowed. */
-    private val knownCountryCodes = countryCodes.values.flatten().toSet() + setOf(
+    private val knownCountryCodes = arabCodes + Broadcasters.countries.flatMap { it.codes } + setOf(
         "PT", "NL", "BE", "TR", "IN", "PK", "IR", "EG", "MA", "DZ", "TN", "AU", "BR", "MX", "PL", "RU", "NO",
         "DK", "GR", "AL", "PH", "NZ", "IE", "AT", "CH", "LB", "SY", "AZ", "RO", "HU", "CZ", "SK", "HR", "RS",
         "BG", "UA", "IL", "ZA", "NG", "KE", "GH", "JP", "KR", "CN", "HK", "SG", "MY", "ID", "TH", "VN", "AF",
         "LAT", "ARG", "CL", "CO", "PE", "EX", "EXYU", "BIH", "MK", "SI", "LT", "LV", "EE", "IS", "CY", "MT",
+        "ES", "FR", "DE", "IT", "UK", "US", "CA", "SE", "FI",
     )
 
     // ---- League priority: the user's leagues first, in his order; everything else after.
@@ -247,6 +244,7 @@ class MatchesRepo(
         val c = fold(m.competition.orEmpty())
         val t = "$l $c"
         if (listOf("women", "femen", "u17", "u19", "u20", "u21", "u23", "youth", "premier-league-2", "premier league 2", "reserve").any { it in t }) return 99
+        if (isFavorite(m)) return -1
         val teams = fold("${m.home} ${m.away}")
         return when {
             ("england" in l && l.endsWith("premier-league")) || (l.isEmpty() && c == "premier league") -> 0
@@ -263,8 +261,18 @@ class MatchesRepo(
         }
     }
 
-    private fun fold(s: String) =
-        java.text.Normalizer.normalize(s, java.text.Normalizer.Form.NFD).replace(Regex("""\p{M}+"""), "").lowercase()
+    private fun fold(s: String) = Broadcasters.fold(s).lowercase()
+
+    /** A match of one of the teams picked in Settings → Favourite teams. */
+    fun isFavorite(m: Match): Boolean {
+        val favs = prefs.favoriteTeams.value
+        if (favs.isEmpty()) return false
+        val keys = favs.map(Teams::key).toSet()
+        return Teams.key(m.home) in keys || Teams.key(m.away) in keys
+    }
+
+    /** Set by Home's match card: the Matches page opens on this match. */
+    @Volatile var openMatchId: String? = null
 
     // ---- Team crests: from the schedule row, crests learned from match pages, or a guess from the
     // league's country and the team's slug in the match link.
@@ -298,24 +306,25 @@ class MatchesRepo(
     }
 
     /**
-     * Finds the channels for one broadcaster name, strictest first:
-     * 1. same core name ("beIN Sports 3" ↔ "AR: beIN SP⚽RTS 3 HD");
-     * 2. channels that start with the name ("STARZPLAY" ↔ "STARZPLAY Sports 1", "Shahid VIP" ↔ "Shahid Sport 2");
-     * 3. the same with spelling folded ("Thmanyah" ↔ "Thamanya 1", "Al Manassa" ↔ "ALMANASA", "Starz Play" ↔ "STARZPLAY").
-     * Broad matches keep only sports channels when there are any.
+     * Finds the channels for one broadcaster name in one country:
+     * 1. a network or app name in that country ("DAZN", "Movistar+", "Sky Go", "Canal+") → only that
+     *    network's sports channels, the ones for this competition when known (Broadcasters);
+     * 2. the same core name ("beIN Sports 3" ↔ "AR: beIN SP⚽RTS 3 HD", "Sky Sports Main Event");
+     * 3. Arab streaming apps ("STARZPLAY", "Shahid VIP", "Thmanyah") → their numbered sports channels,
+     *    spelling folded ("Thamanya 1", "ALMANASA").
      */
-    private fun lookup(idx: Index, broadcaster: String): List<ChannelEntity> {
+    private fun resolve(idx: Index, country: Broadcasters.Country, broadcaster: String, comp: String): List<ChannelEntity> {
         val target = core(broadcaster)
         if (target.isEmpty() || target in never) return emptyList()
-        // Exact name: "beIN Sports 3" ↔ "AR: beIN SP⚽RTS 3 HD". This is the rule for every network
-        // (beIN, Sky, Movistar, DAZN…): a general name like "beIN SPORTS" or "Movistar+" must not pull
-        // in every channel of that family (beIN 1–9, Movistar Acción, Sky Family…).
+        Broadcasters.brand(country, target)?.let { brand ->
+            brand.compRx[comp]?.let { specific -> idx.matching(specific).takeIf { it.isNotEmpty() }?.let { return it } }
+            return idx.matching(brand.anyRx)
+        }
+        // Exact name. A general name ("beIN SPORTS", "Movistar+") must not pull in every channel of a family.
         idx.byCore[target]?.let { return it }
-        // Only streaming services listed by app name ("STARZPLAY", "Shahid VIP") stand for their
-        // numbered sports channels; spelling is folded for them ("Thamanya", "ALMANASA").
         val sk = skeleton(target)
         if (appBrands.none { sk.startsWith(it) }) return emptyList()
-        val prefix = idx.byCore.filterKeys { it.startsWith("$target ") }.values.flatten()
+        val prefix = idx.byCore.subMap("$target ", "$target \uffff").values.flatten()
         if (prefix.isNotEmpty()) return sportsFirst(prefix)
         idx.bySkeleton[sk]?.let { return sportsFirst(it) }
         val loose = idx.bySkeleton.filterKeys { it.startsWith(sk) && it.length > sk.length && it[sk.length].isDigit() || it.startsWith(sk + "sp") }.values.flatten()
@@ -338,19 +347,44 @@ class MatchesRepo(
             body.replace(Regex("""(.)\1+"""), "$1").let { if (it.length > 3 && it.endsWith("h")) it.dropLast(1) else it }
         }
 
-    private class Index(val byCore: Map<String, List<ChannelEntity>>, val bySkeleton: Map<String, List<ChannelEntity>>)
+    private class Index(val byCore: java.util.TreeMap<String, List<ChannelEntity>>, val bySkeleton: Map<String, List<ChannelEntity>>) {
+        private val cache = java.util.concurrent.ConcurrentHashMap<String, List<String>>()
+
+        /** Channels whose core name fully matches one of [patterns], in pattern order. */
+        fun matching(patterns: List<Regex>): List<ChannelEntity> = patterns.flatMap { rx ->
+            cache.getOrPut(rx.pattern) {
+                val lit = literalPrefix(rx.pattern)
+                val keys = if (lit.isEmpty()) byCore.keys else byCore.subMap(lit, lit + "\uffff").keys
+                keys.filter { rx.matches(it) }
+            }.flatMap { byCore[it].orEmpty() }
+        }.distinctBy { it.streamId }
+
+        /** Leading plain text of a pattern ("sky sports (main|…)" → "sky sports "), to search fewer names. */
+        private fun literalPrefix(p: String): String {
+            val sb = StringBuilder()
+            for (i in p.indices) {
+                val ch = p[i]
+                if (!(ch.isLetterOrDigit() || ch == ' ')) {
+                    if (ch == '?' || ch == '*' || ch == '{') sb.setLength((sb.length - 1).coerceAtLeast(0))
+                    break
+                }
+                sb.append(ch)
+            }
+            return sb.toString()
+        }
+    }
 
     // Channel list reduced to core names, rebuilt when the list changes (sync).
     private val indexLock = Mutex()
     private var indexKey: Pair<Long, Int>? = null
-    private var indexMap = Index(emptyMap(), emptyMap())
+    private var indexMap = Index(java.util.TreeMap(), emptyMap())
 
     private suspend fun index(loginId: Long): Index = indexLock.withLock {
         val key = loginId to db.live().countChannels(loginId)
         if (key != indexKey) {
-            val byCore = db.live().allChannels(loginId)
+            val byCore = java.util.TreeMap(db.live().allChannels(loginId)
                 .filterNot { Naming.isSeparator(it.rawName) }
-                .groupBy { core(Naming.cleanChannelName(it.rawName)) }
+                .groupBy { core(Naming.cleanChannelName(it.rawName)) })
             val bySkeleton = HashMap<String, MutableList<ChannelEntity>>()
             byCore.forEach { (k, v) -> bySkeleton.getOrPut(skeleton(k)) { ArrayList() }.addAll(v) }
             indexMap = Index(byCore, bySkeleton)
@@ -393,22 +427,8 @@ class MatchesRepo(
         return d
     }
 
-    /**
-     * Reduces a channel name to what identifies it: "beIN Sports Arabia 5 HD" and "beIN SPORTS 5 4K"
-     * both become "bein sports 5". Region and quality words are dropped wherever they appear.
-     */
-    private fun core(name: String): String =
-        Naming.normalize(name).lowercase()
-            .replace(Regex("""\(.*?\)"""), " ")
-            .split(Regex("""[^\p{L}\p{N}]+"""))
-            .filter { it.isNotBlank() && it !in noise }
-            .joinToString(" ")
-
-    private val noise = setOf(
-        "mena", "arabia", "arabic", "ar", "uk", "hd", "fhd", "uhd", "4k", "sd", "hevc", "tv", "channel", "live",
-        "global", "international", "middle", "east", "north", "africa",
-        "raw", "backup", "vip", "fps", "50fps", "60fps", "h265", "1080p", "720p", "2160p", "1080", "720", "2160",
-    )
+    /** "beIN Sports Arabia 5 HD" and "beIN SPORTS 5 4K" both become "bein sports 5" (see [Broadcasters.core]). */
+    private fun core(name: String): String = Broadcasters.core(name)
 
     /** Apps, not channels: nothing in an IPTV list carries them. */
     private val never = setOf("bein sports connect", "bein connect")

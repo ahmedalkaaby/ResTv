@@ -72,6 +72,7 @@ private sealed interface HomeRow {
     val title: String
     data class Vod(val rail: Rail) : HomeRow { override val id get() = rail.id; override val title get() = rail.title }
     data class Live(override val id: String, override val title: String, val rows: List<ChannelRow>) : HomeRow
+    data class Matches(override val id: String, override val title: String, val days: List<MatchDay>) : HomeRow
 }
 
 /** Where the app opens: continue watching across movies, series and live, My List, and the IMDb picks. */
@@ -90,6 +91,8 @@ fun HomeScreen(
     val wish by home.myList.collectAsStateWithLifecycle()
     val live by home.recentChannels.collectAsStateWithLifecycle()
     val extra by home.extra.collectAsStateWithLifecycle()
+    val matchDay by home.matchDay.collectAsStateWithLifecycle()
+    val app = androidx.compose.ui.platform.LocalContext.current.applicationContext as dev.k3be.restv.RestvApp
     val movieRails by movies.rails.collectAsStateWithLifecycle()
     val seriesRails by series.rails.collectAsStateWithLifecycle()
     val movieWish by movies.wishIds.collectAsStateWithLifecycle()
@@ -103,9 +106,11 @@ fun HomeScreen(
     // What the hero shows: a movie, a series, or a channel.
     var heroKind by remember { mutableStateOf("movie") }
     var heroChannel by remember { mutableStateOf<ChannelRow?>(null) }
+    var heroMatch by remember { mutableStateOf<MatchDay?>(null) }
 
     fun pick(list: List<Rail>, id: String) = list.firstOrNull { it.id == id }?.cards.orEmpty()
     val rows: List<HomeRow> = buildList {
+        if (matchDay.isNotEmpty()) add(HomeRow.Matches("matchday", if (matchDay.size == 1) "Your team plays today" else "Your teams play today", matchDay))
         if (cont.isNotEmpty()) add(HomeRow.Vod(Rail("continue", "Continue watching", cont, accent = true)))
         if (live.isNotEmpty()) add(HomeRow.Live("live", "Live TV · recently watched", live))
         // Platforms that have movies or series in the subscription, in the usual order.
@@ -135,11 +140,13 @@ fun HomeScreen(
     }
 
     Box(Modifier.fillMaxSize()) {
-        HomeBackdrop(heroKind, movies, series)
+        val hm = heroMatch
+        if (heroKind == "match" && hm != null) MatchBackdrop(hm) else HomeBackdrop(heroKind, movies, series)
         Column(Modifier.fillMaxSize()) {
             TopBar(SidebarItem.Home, onNavigate, autoHide = rows.isNotEmpty())
             Box(Modifier.fillMaxWidth().weight(1f)) {
-                if (heroKind == "live") LiveHero(heroChannel, Modifier.align(Alignment.BottomStart))
+                if (heroKind == "match" && hm != null) MatchHero(hm, Modifier.align(Alignment.BottomStart))
+                else if (heroKind == "live") LiveHero(heroChannel, Modifier.align(Alignment.BottomStart))
                 else HomeHeroInfo(heroKind, movies, series, Modifier.align(Alignment.BottomStart))
                 if (rows.isEmpty()) {
                     Txt("Nothing here yet. Open Movies or Series once to download your library.", T.bodyLg, color = C.inkMuted,
@@ -149,7 +156,8 @@ fun HomeScreen(
             dev.k3be.restv.ui.vod.BrowseRows(count = rows.size, key = { rows[it].id }, state = listState) { i ->
                     val row = rows[i]
                     val next = rows.getOrNull(i + 1)?.title
-                    val restoreId = start?.takeIf { it.startsWith("${row.id}|") }?.substringAfter('|')?.toLongOrNull()
+                    val restoreKey = start?.takeIf { it.startsWith("${row.id}|") }?.substringAfter('|')
+                    val restoreId = restoreKey?.toLongOrNull()
                     val first = start == null && i == 0
                     when (row) {
                         is HomeRow.Vod -> RailRow(
@@ -166,6 +174,14 @@ fun HomeScreen(
                             onLongClick = { c -> if (c.kind != "platform") vodMenu = row.id to c },
                             onSeeAll = null,
                             nextTitle = next,
+                        )
+                        is HomeRow.Matches -> MatchDayRail(
+                            title = row.title,
+                            days = row.days,
+                            nextTitle = next,
+                            restoreId = if (restored) null else restoreKey ?: if (first) row.days.firstOrNull()?.match?.id else null,
+                            onFocus = { d -> restored = true; home.lastFocus = "${row.id}|${d.match.id}"; heroKind = "match"; heroMatch = d },
+                            onClick = { d -> app.matches.openMatchId = d.match.id; onNavigate(SidebarItem.Matches) },
                         )
                         is HomeRow.Live -> LiveRail(
                             title = row.title,
@@ -198,7 +214,6 @@ fun HomeScreen(
         )
     }
     liveMenu?.let { r ->
-        val app = androidx.compose.ui.platform.LocalContext.current.applicationContext as dev.k3be.restv.RestvApp
         dev.k3be.restv.ui.components.ActionMenu(
             title = r.main.name,
             actions = listOf(

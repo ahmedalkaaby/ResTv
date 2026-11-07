@@ -93,6 +93,10 @@ fun MatchesScreen(
     var looking by remember { mutableStateOf(false) }
     var gridTarget by remember { mutableStateOf<Long?>(null) }
     val firstMatch = remember { FocusRequester() }
+    // Opened from Home's match card: start on that match.
+    var openId by remember { mutableStateOf(app.matches.openMatchId.also { app.matches.openMatchId = null }) }
+    // The row that takes focus when the list appears (and when coming back from the channels).
+    var focusId by remember { mutableStateOf<String?>(null) }
     val gridState = rememberLazyGridState()
 
     LaunchedEffect(dayOffset, reload) {
@@ -117,7 +121,14 @@ fun MatchesScreen(
     }
     LaunchedEffect(load) {
         val l = load as? Load.Ready ?: return@LaunchedEffect
-        if (selected == null) runCatching { firstMatch.requestFocus() }
+        val wanted = openId?.let { id -> l.matches.firstOrNull { it.id == id } }
+        if (wanted != null) {
+            selected = wanted
+            focusId = wanted.id
+            openId = null
+            delay(50)
+            runCatching { firstMatch.requestFocus() }
+        } else if (selected == null) runCatching { firstMatch.requestFocus() }
         // Channels load only for the match you're on (below); nothing runs in the background.
     }
     LaunchedEffect(selected) {
@@ -152,13 +163,13 @@ fun MatchesScreen(
                         buildList {
                             var last: String? = null
                             l.matches.forEach { m ->
-                                val title = m.competition ?: "Other"
+                                val title = if (app.matches.isFavorite(m)) "Your teams" else m.competition ?: "Other"
                                 if (title != last) { add(Entry.Header(title)); last = title }
                                 add(Entry.Item(m))
                             }
                         }
                     }
-                    val firstId = l.matches.firstOrNull()?.id
+                    val firstId = focusId ?: l.matches.firstOrNull()?.id
                     LazyColumn(Modifier.padding(top = S.s2), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         items(entries.size, key = { i ->
                             when (val e = entries[i]) { is Entry.Header -> "h$i"; is Entry.Item -> e.match.id }

@@ -71,6 +71,7 @@ private val LocalPane = staticCompositionLocalOf { PaneFocus(FocusRequester(), M
 
 private enum class Section(val label: String) {
     Updates("Updates"),
+    Teams("Favourite teams"),
     Account("Account & library"),
     Subtitles("Arabic subtitles"),
     Artwork("Artwork & logos"),
@@ -118,6 +119,7 @@ fun SettingsScreen(
         ) {
             CompositionLocalProvider(LocalPane provides pane) { when (section) {
                 Section.Updates -> UpdatesPane(app)
+                Section.Teams -> TeamsPane(app)
                 Section.Account -> AccountPane(app, session, sync, onSync, onUpdateLogin)
                 Section.Subtitles -> SecretPane(
                     title = "Arabic subtitles · SubDL",
@@ -335,6 +337,56 @@ private fun SecretPane(
             TvButton("Cancel") { value = saved ?: ""; editing = false }
         }
     }
+}
+
+@Composable
+private fun TeamsPane(app: RestvApp) {
+    val pane = LocalPane.current
+    val favs by app.prefs.favoriteTeams.collectAsStateWithLifecycle()
+    val keys = favs.map(dev.k3be.restv.data.Teams::key).toSet()
+    var typing by remember { mutableStateOf(false) }
+    var phone by remember { mutableStateOf(false) }
+    var typed by remember { mutableStateOf("") }
+    val field = remember { FocusRequester() }
+    LaunchedEffect(typing) { if (typing) runCatching { field.requestFocus() } }
+    Txt("Favourite teams", T.titleLg)
+    Txt("On match day, Home opens with your team's match: the competition's colours, a countdown, and OK takes you to its channels. Their matches also lead the Matches list.",
+        T.body, color = C.inkMuted, maxLines = 3)
+
+    @Composable
+    fun Group(title: String, names: List<String>, first: Modifier) {
+        Txt(title, T.caption, color = C.inkFaint)
+        androidx.compose.foundation.lazy.LazyRow(horizontalArrangement = Arrangement.spacedBy(S.s2)) {
+            items(names.size, key = { names[it] }) { i ->
+                val n = names[i]
+                val on = dev.k3be.restv.data.Teams.key(n) in keys
+                TvButton((if (on) "✓ " else "") + n, primary = on, modifier = if (i == 0) first else Modifier) { app.prefs.toggleFavoriteTeam(n) }
+            }
+        }
+    }
+    val mine = favs.filter { f -> (dev.k3be.restv.data.Teams.clubs + dev.k3be.restv.data.Teams.nations).none { dev.k3be.restv.data.Teams.key(it) == dev.k3be.restv.data.Teams.key(f) } }
+    Group("Clubs", dev.k3be.restv.data.Teams.clubs, Modifier.focusRequester(pane.primary).then(pane.back))
+    Group("National teams", dev.k3be.restv.data.Teams.nations, pane.back)
+    Txt("Other teams" + if (mine.isEmpty()) "" else " · OK removes one", T.caption, color = C.inkFaint)
+    if (!typing) {
+        androidx.compose.foundation.lazy.LazyRow(horizontalArrangement = Arrangement.spacedBy(S.s2)) {
+            items(mine.size, key = { mine[it] }) { i -> TvButton("✓ ${mine[i]}", primary = true, modifier = if (i == 0) pane.back else Modifier) { app.prefs.toggleFavoriteTeam(mine[i]) } }
+            item { TvButton("Add a team", modifier = if (mine.isEmpty()) pane.back else Modifier) { typed = ""; typing = true } }
+            item { dev.k3be.restv.ui.components.PhoneButton { phone = true } }
+        }
+    } else {
+        Row(horizontalArrangement = Arrangement.spacedBy(S.s2), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.width(360.dp)) { TvTextField("Team name, as on LiveSoccerTV", typed, { typed = it }, Modifier.focusRequester(field).then(pane.back)) }
+            TvButton("Add", primary = true) { if (typed.isNotBlank()) app.prefs.setFavoriteTeams(favs + typed.trim()); typing = false }
+            TvButton("Cancel") { typing = false }
+        }
+    }
+    if (phone) dev.k3be.restv.ui.components.PhoneInputDialog(
+        title = "Add a favourite team",
+        fields = listOf(dev.k3be.restv.data.PhoneInput.Field("t", "Team name (as on LiveSoccerTV)", "")),
+        onResult = { v -> v["t"]?.takeIf { it.isNotBlank() }?.let { app.prefs.setFavoriteTeams(favs + it.trim()) } },
+        onClose = { phone = false },
+    )
 }
 
 @Composable

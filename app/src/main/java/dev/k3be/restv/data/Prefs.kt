@@ -118,6 +118,24 @@ class Prefs(context: Context) {
         sp.edit().putString("recent_$loginId", next.joinToString(",")).apply()
     }
 
+    private val _favTeams = MutableStateFlow(
+        sp.getString("favTeams", "")!!.split('\n').map { it.trim() }.filter { it.isNotEmpty() }
+    )
+    /** Teams picked in Settings: their matches open Home on match day and lead the Matches list. */
+    val favoriteTeams: StateFlow<List<String>> = _favTeams
+
+    fun setFavoriteTeams(list: List<String>) {
+        val clean = list.map { it.trim() }.filter { it.isNotEmpty() }.distinctBy { Teams.key(it) }
+        _favTeams.value = clean
+        sp.edit().putString("favTeams", clean.joinToString("\n")).apply()
+    }
+
+    fun toggleFavoriteTeam(name: String) {
+        val k = Teams.key(name)
+        val now = _favTeams.value
+        setFavoriteTeams(if (now.any { Teams.key(it) == k }) now.filterNot { Teams.key(it) == k } else now + name)
+    }
+
     fun matchesUrl(): String? = sp.getString("matchesUrl", null)?.takeIf { it.isNotBlank() }
     fun matchesKey(): String? = sp.getString("matchesKey", null)?.takeIf { it.isNotBlank() }
 

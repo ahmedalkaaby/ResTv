@@ -42,6 +42,12 @@ class SettingsNavigationTest {
         press(Key.DirectionRight)
         rule.onNode(hasAnyDescendant(hasText("Check for updates")).and(isFocused())).assertExists()
 
+        // Favourite teams: Right lands on the first club.
+        press(Key.DirectionLeft)
+        press(Key.DirectionDown) // Favourite teams
+        press(Key.DirectionRight)
+        rule.onNode(hasAnyDescendant(hasText("Real Madrid", substring = true)).and(isFocused())).assertExists()
+
         // Back to the list, down to Arabic subtitles, then into it.
         press(Key.DirectionLeft)
         press(Key.DirectionDown) // Account & library
