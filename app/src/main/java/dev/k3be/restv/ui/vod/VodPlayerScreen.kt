@@ -145,8 +145,10 @@ fun VodPlayerScreen(
             .build().apply {
                 trackSelectionParameters = trackSelectionParameters.buildUpon()
                     .setPreferredAudioLanguages("en", "eng")
-                    .setPreferredTextLanguages("ar", "ara", "en")
+                    .setPreferredTextLanguages("ar", "ara")
                     .setSelectUndeterminedTextLanguage(false)
+                    // Subtitles start off; the effect below turns on Arabic from the file or SubDL.
+                    .setTrackTypeDisabled(MC.TRACK_TYPE_TEXT, true)
                     .build()
                 playWhenReady = true
             }
@@ -275,12 +277,49 @@ fun VodPlayerScreen(
         overlayToken++
     }
 
-    // Arabic subtitles: the file's own Arabic track if it has one, otherwise SubDL.
+    /** "AR-SUBS" titles have Arabic burned into the picture: no subtitle line on top of them. */
+    suspend fun burnedInArabic(): Boolean = runCatching {
+        val (raw, catId, kind) = if (item.kind == "movie") {
+            val m = app.db.vod().movie(loginId, item.id) ?: return false
+            Triple(m.rawName, m.categoryId, "movie")
+        } else {
+            val sr = app.db.vod().series(loginId, item.seriesId) ?: return false
+            Triple(sr.rawName, sr.categoryId, "series")
+        }
+        val cat = app.db.vod().categories(loginId, kind).firstOrNull { it.categoryId == catId }?.rawName
+        val tag = VodNaming.source(raw, cat) ?: return false
+        tag.startsWith("AR") && "SUB" in tag
+    }.getOrDefault(false)
+
+    // Subtitles, per title:
+    //  - AR-SUBS source (Arabic in the picture) → off;
+    //  - the file has an Arabic track → that track;
+    //  - otherwise → the best SubDL match. Other languages in the file are never switched on by themselves.
     LaunchedEffect(index, item.id) {
         subOptions = emptyList(); cues = emptyList(); subChoice = -1; extOn = false; subStatus = null; cueText = null
+        player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
+            .clearOverridesOfType(MC.TRACK_TYPE_TEXT)
+            .setTrackTypeDisabled(MC.TRACK_TYPE_TEXT, true)
+            .build()
+        val burned = burnedInArabic()
+        // Let the file's own tracks appear.
+        var waited = 0
+        while (tracks.groups.none { it.type == MC.TRACK_TYPE_AUDIO || it.type == MC.TRACK_TYPE_VIDEO } && waited < 8_000) { delay(250); waited += 250 }
+        val embeddedArabic = tracks.groups.any { g ->
+            g.type == MC.TRACK_TYPE_TEXT && (0 until g.length).any { g.getTrackFormat(it).language?.lowercase()?.startsWith("ar") == true }
+        }
+        if (!burned && embeddedArabic) {
+            player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().setTrackTypeDisabled(MC.TRACK_TYPE_TEXT, false).build()
+        }
+        if (burned) notice = "Arabic subtitles are in the picture · ▲ to add others"
+
         val key = app.prefs.subdlKey()
-        if (key == null) { subStatus = "Add a free SubDL key in Settings to get Arabic subtitles for everything."; return@LaunchedEffect }
-        subStatus = "Looking for Arabic subtitles…"
+        if (key == null) {
+            if (!burned && !embeddedArabic) subStatus = "Add a free SubDL key in Settings to get Arabic subtitles for everything."
+            return@LaunchedEffect
+        }
+        // Still looked up for AR-SUBS and files with Arabic, so ▲ can offer SubDL; only used by itself when needed.
+        if (!burned && !embeddedArabic) subStatus = "Looking for Arabic subtitles…"
         val query = runCatching {
             if (item.kind == "movie") {
                 val info = app.vod.movieInfo(session.login, item.id)
@@ -292,16 +331,13 @@ fun VodPlayerScreen(
         }.getOrElse { SubQuery(item.title, null, null, item.kind == "episode", item.season, item.episode) }
         subQuery = query
         val found = runCatching { app.subdl.search(key, query) }
-        found.onFailure { subStatus = it.message ?: "SubDL didn't answer" }
-        val list = found.getOrNull() ?: return@LaunchedEffect
+        val list = found.getOrNull()
+        if (list == null) { if (!burned && !embeddedArabic) subStatus = found.exceptionOrNull()?.message ?: "SubDL didn't answer"; return@LaunchedEffect }
         subOptions = list
+        if (burned || embeddedArabic) { subStatus = null; return@LaunchedEffect }
         if (list.isEmpty()) { subStatus = "No Arabic subtitles on SubDL for this yet."; return@LaunchedEffect }
         subStatus = null
-        delay(1_500) // let the file's own tracks appear first
-        val embeddedArabic = tracks.groups.any { g ->
-            g.type == MC.TRACK_TYPE_TEXT && (0 until g.length).any { g.getTrackFormat(it).language?.lowercase()?.startsWith("ar") == true }
-        }
-        if (!embeddedArabic) loadSub(0)
+        loadSub(0)
     }
 
     // The subtitle line on screen, shifted by the chosen timing.

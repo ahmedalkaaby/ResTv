@@ -44,6 +44,9 @@ fun CommentaryPanel(
     onNudge: (Long) -> Unit,
     onChannelLevel: (Float) -> Unit,
     onOff: () -> Unit,
+    sync: SyncState,
+    autoSync: Boolean,
+    onAutoSync: (Boolean) -> Unit,
     modifier: Modifier,
 ) {
     val first = remember { FocusRequester() }
@@ -75,6 +78,14 @@ fun CommentaryPanel(
                     CommentaryState.Off -> "" to C.inkMuted
                 }
                 Txt(line, T.caption, color = color, maxLines = 3)
+                val (syncLine, syncColor) = when (sync) {
+                    SyncState.Off -> "Auto sync off" to C.inkFaint
+                    is SyncState.Listening -> "Auto sync · listening to both for the stadium sound (~${sync.secondsLeft} s)" to C.inkMuted
+                    is SyncState.Synced -> "Auto sync · matched by the stadium sound, keeps checking" to C.success
+                    SyncState.NoMatch -> "Auto sync · can't hear the same stadium in both yet; set it by hand or keep waiting" to C.accent
+                    SyncState.NoChannelSound -> "Auto sync · can't listen to this channel's sound (it goes straight to the TV)" to C.danger
+                }
+                Txt(syncLine, T.caption, color = syncColor, maxLines = 3)
             }
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 TvButton("−1 s", modifier = Modifier.focusRequester(first)) { onNudge(-1_000) }
@@ -89,6 +100,11 @@ fun CommentaryPanel(
                     TvButton(label, primary = channelLevel == v) { onChannelLevel(v) }
                 }
                 TvButton("Turn off") { onOff() }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                Txt("Auto sync", T.caption, color = C.inkMuted)
+                TvButton("On", primary = autoSync) { onAutoSync(true) }
+                TvButton("Off", primary = !autoSync) { onAutoSync(false) }
             }
         }
 

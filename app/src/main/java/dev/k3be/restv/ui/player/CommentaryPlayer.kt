@@ -41,6 +41,8 @@ class CommentaryPlayer(
     private val scope: CoroutineScope,
 ) {
     private val delayProcessor = DelayAudioProcessor()
+    /** Hears the commentary as it arrives (before the delay), for auto-sync. */
+    val soundTap = SoundTap()
     private val player: ExoPlayer
 
     private val _state = MutableStateFlow<CommentaryState>(CommentaryState.Off)
@@ -63,7 +65,7 @@ class CommentaryPlayer(
                 enableFloatOutput: Boolean,
                 enableAudioTrackPlaybackParams: Boolean,
             ): AudioSink = DefaultAudioSink.Builder(context)
-                .setAudioProcessors(arrayOf(delayProcessor))
+                .setAudioProcessors(arrayOf(soundTap, delayProcessor))
                 .build()
         }
         val upstream = OkHttpDataSource.Factory(http).setUserAgent(userAgent)

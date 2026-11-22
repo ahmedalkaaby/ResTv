@@ -193,6 +193,22 @@ fun PlayerScreen(
         app.prefs.setCommentaryDelayMs(ch.streamId, src.id, commentary.delayMs.value)
         app.prefs.setLastDelayMs(src.id, commentary.delayMs.value)
     }
+    // Auto-sync: listens to the stadium sound in both and moves the delay to where they line up.
+    val autoSync = remember {
+        AutoSync(scope, sp.soundTap, commentary.soundTap, { commentary.delayMs.value }) { ms ->
+            commentary.setDelay(ms)
+            saveDelay()
+        }
+    }
+    var autoSyncOn by remember { mutableStateOf(app.prefs.autoSyncCommentary()) }
+    val syncState by autoSync.state.collectAsStateWithLifecycle()
+    // Restarts for each source and channel: a new channel or source is a new pair to match.
+    LaunchedEffect(commentary.source?.id, index, variant, autoSyncOn) {
+        if (commentary.source != null && autoSyncOn) autoSync.start() else autoSync.stop()
+    }
+    LaunchedEffect(syncState is SyncState.Synced) {
+        if (syncState is SyncState.Synced && !commentaryOpen) notice = "Commentary matched to the picture"
+    }
     LaunchedEffect(overlayToken) {
         overlayVisible = true
         delay(5_000)
@@ -328,9 +344,12 @@ fun PlayerScreen(
                         ?: app.prefs.lastDelayMs(src.id) ?: 75_000L
                     commentary.start(src, start)
                 },
-                onNudge = { d -> commentary.nudge(d); saveDelay() },
+                onNudge = { d -> commentary.nudge(d); saveDelay(); autoSync.userAdjusted() },
                 onChannelLevel = { l -> channelLevel = l; app.prefs.setChannelSoundLevel(l) },
                 onOff = { commentary.stop() },
+                sync = syncState,
+                autoSync = autoSyncOn,
+                onAutoSync = { on -> autoSyncOn = on; app.prefs.setAutoSyncCommentary(on) },
                 modifier = Modifier.align(Alignment.CenterEnd),
             )
         }

@@ -70,6 +70,8 @@ class StreamPlayer(
     /** Failures allowed before giving up. Lower when a fallback quality exists. */
     var giveUpAfter: Int = 10
     val player: ExoPlayer
+    /** Listens to the channel's sound for commentary auto-sync (idle unless enabled). */
+    val soundTap = SoundTap()
 
     private val _status = MutableStateFlow<PlayStatus>(PlayStatus.Starting)
     val status: StateFlow<PlayStatus> = _status
@@ -100,7 +102,17 @@ class StreamPlayer(
             )
             .setPrioritizeTimeOverSizeThresholds(true)
             .build()
-        val renderers = DefaultRenderersFactory(context)
+        val renderers = object : DefaultRenderersFactory(context) {
+            override fun buildAudioSink(
+                context: Context,
+                enableFloatOutput: Boolean,
+                enableAudioTrackPlaybackParams: Boolean,
+            ): androidx.media3.exoplayer.audio.AudioSink = androidx.media3.exoplayer.audio.DefaultAudioSink.Builder(context)
+                .setEnableFloatOutput(enableFloatOutput)
+                .setEnableAudioTrackPlaybackParams(enableAudioTrackPlaybackParams)
+                .setAudioProcessors(arrayOf(soundTap))
+                .build()
+        }
             .setEnableDecoderFallback(true)
             .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER)
 

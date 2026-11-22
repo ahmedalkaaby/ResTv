@@ -89,6 +89,10 @@ class Prefs(context: Context) {
         sp.edit().putLong("delay_last_$sourceId", ms).apply()
     }
 
+    /** Match the commentary to the picture by listening to both (on unless turned off). */
+    fun autoSyncCommentary(): Boolean = sp.getBoolean("autoSync", true)
+    fun setAutoSyncCommentary(on: Boolean) { sp.edit().putBoolean("autoSync", on).apply() }
+
     fun channelSoundLevel(): Float = sp.getFloat("channelSound", 0f)
 
     fun setChannelSoundLevel(level: Float) {
