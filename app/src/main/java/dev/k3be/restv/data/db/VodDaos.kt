@@ -146,6 +146,12 @@ interface WatchDao {
 
 @Dao
 interface WatchRemoveDao {
+    @Query("DELETE FROM watch WHERE accountId = :viewer")
+    suspend fun removeViewer(viewer: Long)
+
+    @Query("DELETE FROM wish WHERE accountId = :viewer")
+    suspend fun removeViewerWishes(viewer: Long)
+
     @Query("DELETE FROM watch WHERE accountId = :accountId AND loginId = :loginId AND kind = 'movie' AND itemId = :movieId")
     suspend fun removeMovie(accountId: Long, loginId: Long, movieId: Long)
 

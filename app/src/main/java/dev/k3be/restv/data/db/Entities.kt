@@ -12,6 +12,21 @@ data class AccountEntity(
     val lastUsedAt: Long,
 )
 
+/**
+ * A person watching on this TV (Netflix-style). They share the login and channels; movies and
+ * series history, Continue watching and My List are their own. The first profile of an account
+ * ([main]) keeps the account's existing history.
+ */
+@Entity(tableName = "profile", indices = [Index("accountId")])
+data class ProfileEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val accountId: Long,
+    val name: String,
+    val color: Int,
+    val main: Boolean,
+    val createdAt: Long,
+)
+
 /** One Xtream Codes login. An account can hold several; the UI uses the first one for now. */
 @Entity(tableName = "xtream_login", indices = [Index("accountId")])
 data class LoginEntity(

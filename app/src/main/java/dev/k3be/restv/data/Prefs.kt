@@ -89,6 +89,10 @@ class Prefs(context: Context) {
         sp.edit().putLong("delay_last_$sourceId", ms).apply()
     }
 
+    /** A small muted picture of the focused channel on the Live screen. */
+    fun livePreview(): Boolean = sp.getBoolean("livePreview", true)
+    fun setLivePreview(on: Boolean) { sp.edit().putBoolean("livePreview", on).apply() }
+
     /** Match the commentary to the picture by listening to both (on unless turned off). */
     fun autoSyncCommentary(): Boolean = sp.getBoolean("autoSync", true)
     fun setAutoSyncCommentary(on: Boolean) { sp.edit().putBoolean("autoSync", on).apply() }

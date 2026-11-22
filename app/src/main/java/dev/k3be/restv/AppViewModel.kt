@@ -1,5 +1,7 @@
 package dev.k3be.restv
 
+import dev.k3be.restv.data.db.ProfileEntity
+
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -20,11 +22,18 @@ const val VOD_PARSER = 2
 /** How old the downloaded catalogue may get before it refreshes on its own. */
 const val AUTO_SYNC_MS = 48 * 3_600_000L
 
-data class Session(val account: AccountEntity, val login: LoginEntity)
+/** Avatar colours, in the order profiles are added. */
+val PROFILE_COLORS = listOf(0xFF3B82F6.toInt(), 0xFFE5484D.toInt(), 0xFF30A46C.toInt(), 0xFFF5A524.toInt(), 0xFF8E4EC6.toInt(), 0xFF12A594.toInt())
+
+data class Session(val account: AccountEntity, val login: LoginEntity, val profile: ProfileEntity? = null) {
+    /** Whose history and lists: the main profile keeps the account's own; others are kept apart. */
+    val viewer: Long get() = profile?.takeIf { !it.main }?.let { -it.id } ?: account.id
+}
 
 sealed interface Route {
     data object Loading : Route
     data object Onboarding : Route
+    data object Profiles : Route
     data object Live : Route
     data object Home : Route
     data object Settings : Route
@@ -73,6 +82,60 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private val _sync = MutableStateFlow<SyncState>(SyncState.Idle)
     val sync: StateFlow<SyncState> = _sync
 
+    private val _profiles = MutableStateFlow<List<ProfileEntity>>(emptyList())
+    val profiles: StateFlow<List<ProfileEntity>> = _profiles
+
+    private suspend fun ensureProfiles(account: AccountEntity): List<ProfileEntity> {
+        var list = app.db.profiles().forAccount(account.id)
+        if (list.isEmpty()) {
+            app.db.profiles().insert(ProfileEntity(accountId = account.id, name = account.name, color = PROFILE_COLORS[0], main = true, createdAt = System.currentTimeMillis()))
+            list = app.db.profiles().forAccount(account.id)
+        }
+        _profiles.value = list
+        return list
+    }
+
+    fun openProfiles() { stack.clear(); _route.value = Route.Profiles }
+
+    fun chooseProfile(p: ProfileEntity) {
+        val s = _session.value ?: return
+        _session.value = s.copy(profile = p)
+        stack.clear()
+        _route.value = Route.Home
+    }
+
+    fun addProfile(name: String) {
+        val s = _session.value ?: return
+        viewModelScope.launch {
+            val n = _profiles.value.size
+            app.db.profiles().insert(ProfileEntity(accountId = s.account.id, name = name.trim().ifEmpty { "Profile ${n + 1}" },
+                color = PROFILE_COLORS[n % PROFILE_COLORS.size], main = false, createdAt = System.currentTimeMillis()))
+            _profiles.value = app.db.profiles().forAccount(s.account.id)
+        }
+    }
+
+    fun renameProfile(p: ProfileEntity, name: String) {
+        val s = _session.value ?: return
+        viewModelScope.launch {
+            app.db.profiles().rename(p.id, name.trim().ifEmpty { p.name })
+            _profiles.value = app.db.profiles().forAccount(s.account.id)
+            _session.value?.profile?.takeIf { it.id == p.id }?.let { _session.value = _session.value?.copy(profile = it.copy(name = name.trim())) }
+        }
+    }
+
+    fun deleteProfile(p: ProfileEntity) {
+        val s = _session.value ?: return
+        if (p.main) return
+        viewModelScope.launch {
+            app.db.profiles().delete(p.id)
+            // Their history and list go with them.
+            app.db.watchRemove().removeViewer(-p.id)
+            app.db.watchRemove().removeViewerWishes(-p.id)
+            _profiles.value = app.db.profiles().forAccount(s.account.id)
+            if (_session.value?.profile?.id == p.id) _session.value = s.copy(profile = _profiles.value.first())
+        }
+    }
+
     /** Screens opened on top of the current tab (details, player), newest last. */
     private val stack = ArrayList<Route>()
 
@@ -84,9 +147,11 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 _route.value = Route.Onboarding
             } else {
                 app.db.accounts().touch(account.id, System.currentTimeMillis())
-                _session.value = Session(account, login)
+                val profiles = ensureProfiles(account)
+                _session.value = Session(account, login, profiles.first())
                 app.art.login = login
-                _route.value = Route.Home
+                // With several people on this TV, start by asking who's watching.
+                _route.value = if (profiles.size > 1) Route.Profiles else Route.Home
                 if (login.lastSyncAt == null) syncNow()
                 // A newer name parser (source tags like "AR SUBS") re-reads the catalogue once, in the background.
                 else if (app.prefs.vodParser() < VOD_PARSER && app.db.vod().countMovies(login.id) + app.db.vod().countSeries(login.id) > 0) syncVodNow()
@@ -169,7 +234,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 val loginId = app.db.logins().insert(probe.copy(accountId = accountId))
                 val account = AccountEntity(accountId, name.trim().ifEmpty { "Me" }, now)
                 val login = probe.copy(id = loginId, accountId = accountId)
-                _session.value = Session(account, login)
+                _session.value = Session(account, login, ensureProfiles(account).first())
                 app.art.login = login
                 runSync(login)
                 if (_sync.value !is SyncState.Failed) _route.value = Route.Home

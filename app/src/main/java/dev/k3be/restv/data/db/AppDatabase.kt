@@ -21,14 +21,17 @@ import androidx.room.RoomDatabase.JournalMode
         SeriesEntity::class,
         WatchEntity::class,
         WishEntity::class,
+        ProfileEntity::class,
     ],
-    version = 2,
+    version = 3,
     exportSchema = true,
     // Movies & series only add tables, so favourites, category order and history carry over.
-    autoMigrations = [AutoMigration(from = 1, to = 2)],
+    // Profiles (v3) only add a table.
+    autoMigrations = [AutoMigration(from = 1, to = 2), AutoMigration(from = 2, to = 3)],
 )
 abstract class AppDatabase : RoomDatabase() {
     abstract fun accounts(): AccountDao
+    abstract fun profiles(): ProfileDao
     abstract fun logins(): LoginDao
     abstract fun live(): LiveDao
     abstract fun prefs(): PrefDao

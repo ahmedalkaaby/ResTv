@@ -80,6 +80,9 @@ ksp {
     arg("room.schemaLocation", "$projectDir/schemas")
 }
 
+// Room's exported schemas, for the upgrade tests.
+android.sourceSets.getByName("debug").assets.srcDir("$projectDir/schemas")
+
 composeCompiler {
     stabilityConfigurationFiles.add(rootProject.layout.projectDirectory.file("app/compose_stability.conf"))
 }

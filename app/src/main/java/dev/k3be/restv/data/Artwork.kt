@@ -23,6 +23,7 @@ data class Person(val name: String, val role: String?, val photo: String?)
 
 /** Everything a details page shows beyond the provider's info, from TMDB. */
 data class TitleDetails(
+    val id: String?,
     val tagline: String?,
     val runtimeMin: Int?,
     val genres: List<String>,
@@ -199,6 +200,7 @@ class Artwork(
         val studios = (if (type == "movie") o.arr("production_companies") else o.arr("networks")).mapNotNull { it.s("name") }.take(3)
         val runtime = o.s("runtime")?.toIntOrNull() ?: (o["episode_run_time"] as? JsonArray)?.firstOrNull()?.let { (it as? JsonPrimitive)?.content?.toIntOrNull() }
         return TitleDetails(
+            id = o.s("id"),
             tagline = o.s("tagline"),
             runtimeMin = runtime?.takeIf { it > 0 },
             genres = o.arr("genres").mapNotNull { it.s("name") },

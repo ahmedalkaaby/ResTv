@@ -25,8 +25,8 @@ import kotlinx.coroutines.launch
 fun rememberHomeViewModel(session: Session): HomeViewModel {
     val app = LocalContext.current.applicationContext as RestvApp
     return viewModel(
-        key = "home-${session.login.id}",
-        factory = viewModelFactory { initializer { HomeViewModel(app, session.account.id, session.login) } },
+        key = "home-${session.login.id}-${session.viewer}",
+        factory = viewModelFactory { initializer { HomeViewModel(app, session.viewer, session.login) } },
     )
 }
 

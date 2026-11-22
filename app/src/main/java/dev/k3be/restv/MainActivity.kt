@@ -129,6 +129,17 @@ fun AppRoot(vm: AppViewModel = viewModel()) {
             }
             Route.Loading -> dev.k3be.restv.ui.Splash()
             Route.Onboarding -> OnboardingScreen(sync = sync, onConnect = vm::connect)
+            Route.Profiles -> {
+                val profiles by vm.profiles.collectAsStateWithLifecycle()
+                dev.k3be.restv.ui.ProfilesScreen(
+                    profiles = profiles,
+                    current = session?.profile?.id,
+                    onPick = vm::chooseProfile,
+                    onAdd = vm::addProfile,
+                    onRename = vm::renameProfile,
+                    onDelete = vm::deleteProfile,
+                )
+            }
             Route.Live -> session?.let { s ->
                 LiveScreen(
                     session = s,
@@ -153,7 +164,9 @@ fun AppRoot(vm: AppViewModel = viewModel()) {
                 )
             }
             Route.Settings -> session?.let { s ->
-                SettingsScreen(session = s, sync = sync, onSync = vm::syncNow, onNavigate = navigate, onUpdateLogin = vm::updateLogin)
+                androidx.compose.runtime.CompositionLocalProvider(dev.k3be.restv.ui.settings.LocalSwitchProfiles provides vm::openProfiles) {
+                    SettingsScreen(session = s, sync = sync, onSync = vm::syncNow, onNavigate = navigate, onUpdateLogin = vm::updateLogin)
+                }
             }
             Route.Movies, Route.Series -> session?.let { s ->
                 val kind = if (r == Route.Movies) "movie" else "series"

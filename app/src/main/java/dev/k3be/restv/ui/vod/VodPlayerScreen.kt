@@ -122,7 +122,7 @@ fun VodPlayerScreen(
     val context = LocalContext.current
     val app = context.applicationContext as RestvApp
     val scope = rememberCoroutineScope()
-    val accountId = session.account.id
+    val accountId = session.viewer
     val loginId = session.login.id
 
     /** The queue can change when switching to another version of a series. */
@@ -369,11 +369,29 @@ fun VodPlayerScreen(
     val hasNext = index < q.lastIndex && q[index + 1].kind == "episode"
     fun goNext() { save(); nextPrompt = false; index++ }
 
-    // Next episode: offered when the credits start (learned per show, 40 s until it knows), plays after 5 s.
+    // Intro, recap, credits and preview times from TheIntroDB, looked up once the length is known.
+    var segs by remember(index) { mutableStateOf<List<dev.k3be.restv.data.Segment>>(emptyList()) }
+    LaunchedEffect(index, duration > 0) {
+        if (duration <= 0) return@LaunchedEffect
+        val tmdb = runCatching {
+            if (item.kind == "movie") {
+                val i = app.vod.movieInfo(session.login, item.id)
+                i.tmdbId?.takeIf { it.all(Char::isDigit) } ?: app.art.details("movie", i.title.ifBlank { item.title }, i.year, null)?.id
+            } else {
+                val i = app.vod.seriesInfo(session.login, item.seriesId)
+                i.tmdbId?.takeIf { it.all(Char::isDigit) } ?: app.art.details("series", i.title.ifBlank { item.title }, i.year, null)?.id
+            }
+        }.getOrNull() ?: return@LaunchedEffect
+        segs = app.segments.get(tmdb, item.season.takeIf { isEpisode }, item.episode.takeIf { isEpisode }, duration)
+    }
+
+    // Next episode: offered when the credits start (TheIntroDB, else learned per show, 40 s until it knows), plays after 5 s.
     val credits = if (isEpisode) app.prefs.credits(item.seriesId) else 0L
+    val creditsStart = segs.firstOrNull { it.kind == "credits" }?.start
     LaunchedEffect(position, ended) {
         if (!hasNext || nextPrompt) return@LaunchedEffect
-        val inCredits = duration > 0 && position > duration / 2 && duration - position <= credits
+        val inCredits = duration > 0 && position > duration / 2 &&
+            (if (creditsStart != null) position >= creditsStart else duration - position <= credits)
         if ((inCredits && !nextDismissed) || ended) nextPrompt = true
     }
     LaunchedEffect(nextPrompt) {
@@ -397,14 +415,23 @@ fun VodPlayerScreen(
     }
     // The Skip intro button: offered for 10 s when the intro starts, taken with ▶ (OK always pauses),
     // dismissed with Back. With auto-skip on, it jumps by itself.
-    val inIntro = intro?.let { (a, b) -> position in (a - 2_000)..(b - 4_000) } == true
-    var introDismissed by remember(index) { mutableStateOf(false) }
+    // What can be skipped here: TheIntroDB's intro / recap / preview, else the intro you taught it.
+    val skips = buildList {
+        addAll(segs.filter { it.kind != "credits" })
+        if (segs.none { it.kind == "intro" }) intro?.let { add(dev.k3be.restv.data.Segment("intro", it.first, it.second)) }
+    }
+    val skipNow = skips.firstOrNull { s -> val e = s.end ?: duration; e > 0 && position in (s.start - 2_000)..(e - 4_000) }
+    val skipTo = skipNow?.let { it.end ?: duration }
+    val skipLabel = when (skipNow?.kind) { "recap" -> "Skip recap"; "preview" -> "Skip preview"; else -> "Skip intro" }
+    val inIntro = skipNow != null
+    var introDismissed by remember(index, skipNow?.start) { mutableStateOf(false) }
     var introOffer by remember(index) { mutableStateOf(false) }
-    LaunchedEffect(inIntro) {
-        if (!inIntro) { introOffer = false; return@LaunchedEffect }
-        if (app.prefs.autoSkipIntro(item.seriesId)) {
-            intro?.let { player.seekTo(it.second) }
-            notice = "Skipped the intro"
+    LaunchedEffect(skipNow?.kind, skipNow?.start) {
+        if (skipNow == null) { introOffer = false; return@LaunchedEffect }
+        val auto = if (isEpisode) app.prefs.autoSkipIntro(item.seriesId) else false
+        if (auto && skipNow.kind != "preview" && skipTo != null) {
+            player.seekTo(skipTo)
+            notice = if (skipNow.kind == "recap") "Skipped the recap" else "Skipped the intro"
             return@LaunchedEffect
         }
         introOffer = true
@@ -469,7 +496,7 @@ fun VodPlayerScreen(
                 when (ev.key) {
                     Key.DirectionLeft, Key.MediaRewind -> { seek(-step); true }
                     Key.DirectionRight, Key.MediaFastForward -> {
-                        if (showSkipIntro && repeat == 0) { intro?.let { player.seekTo(it.second) }; introDismissed = true; overlayToken++ }
+                        if (showSkipIntro && repeat == 0) { skipTo?.let { player.seekTo(it) }; introDismissed = true; overlayToken++ }
                         else seek(step)
                         true
                     }
@@ -594,7 +621,7 @@ fun VodPlayerScreen(
 
         if (showSkipIntro && !panelOpen) {
             Txt(
-                "Skip intro  ▶", T.label, color = C.focusInk,
+                "$skipLabel  ▶", T.label, color = C.focusInk,
                 modifier = Modifier.align(Alignment.BottomEnd).padding(end = S.safeX, bottom = S.safeY + 110.dp)
                     .background(C.focus, RoundedCornerShape(50)).padding(horizontal = 22.dp, vertical = 11.dp),
             )

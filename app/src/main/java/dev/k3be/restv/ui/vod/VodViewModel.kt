@@ -60,8 +60,8 @@ data class Hero(val card: VodCard, val backdrop: String?, val plot: String?, val
 fun rememberVodViewModel(session: Session, kind: String): VodViewModel {
     val app = LocalContext.current.applicationContext as RestvApp
     return viewModel(
-        key = "vod-$kind-${session.login.id}",
-        factory = viewModelFactory { initializer { VodViewModel(app, session.account.id, session.login, kind) } },
+        key = "vod-$kind-${session.login.id}-${session.viewer}",
+        factory = viewModelFactory { initializer { VodViewModel(app, session.viewer, session.login, kind) } },
     )
 }
 

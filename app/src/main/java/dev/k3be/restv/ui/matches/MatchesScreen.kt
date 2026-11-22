@@ -1,5 +1,19 @@
 package dev.k3be.restv.ui.matches
 
+import androidx.compose.ui.unit.sp
+
+import androidx.compose.ui.graphics.Color
+
+import androidx.compose.ui.draw.clip
+
+import androidx.compose.foundation.layout.height
+
+import androidx.compose.foundation.background
+
+import androidx.compose.foundation.border
+
+import dev.k3be.restv.ui.components.glass
+
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -147,7 +161,11 @@ fun MatchesScreen(
     }
 
     NavScaffold(active = SidebarItem.Matches, onSelect = onNavigate) {
-        Column(Modifier.width(420.dp).fillMaxHeight().padding(top = S.s3)) {
+        Column(
+            Modifier.width(400.dp).fillMaxHeight().padding(top = S.s3, bottom = S.s3)
+                .glass(androidx.compose.foundation.shape.RoundedCornerShape(S.radiusLg), 1f, dev.k3be.restv.ui.components.Glass.Regular)
+                .padding(10.dp),
+        ) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(S.s2)) {
                 TvButton("Today", primary = dayOffset == 0) { dayOffset = 0 }
                 TvButton("Tomorrow", primary = dayOffset == 1) { dayOffset = 1 }
@@ -207,16 +225,8 @@ fun MatchesScreen(
                 return@Column
             }
             val c = covered[m.id]
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(S.s2)) {
-                Crest(c?.homeLogo, 36.dp)
-                Txt("${m.home} v ${m.away}", T.title)
-                Crest(c?.awayLogo, 36.dp)
-            }
-            Txt(
-                listOfNotNull(m.competition, m.kickoff?.let { timeFmt.format(Date(it)) }).joinToString(" · ") +
-                    if (c != null) " · ${rows.size} of your channels · 4K first" else "",
-                T.caption, color = C.inkMuted,
-            )
+            MatchPoster(m, c?.homeLogo ?: app.matches.logoFor(m, home = true), c?.awayLogo ?: app.matches.logoFor(m, home = false),
+                if (c != null && !looking) rows.size else null)
             if (c != null) {
                 val countries = c.countries.values.flatten().groupingBy { it }.eachCount().entries
                     .sortedByDescending { it.value }.map { it.key }
@@ -288,6 +298,47 @@ private fun MatchRow(
                     if (coverage.channels.any { it.quality == 3 }) Badge("4K", BadgeKind.Uhd)
                     Txt(if (n == 0) "no channels" else "$n ch", T.caption, color = C.inkFaint)
                 }
+            }
+        }
+    }
+}
+
+/** The selected match as a poster in its competition's colours: crests, time or LIVE, channel count. */
+@Composable
+private fun MatchPoster(m: Match, homeLogo: String?, awayLogo: String?, channels: Int?) {
+    val theme = dev.k3be.restv.ui.home.leagueTheme(m)
+    val now = dev.k3be.restv.ui.home.rememberNow()
+    val k = m.kickoff
+    val live = k != null && now in k..(k + 115 * 60_000L)
+    val shape = androidx.compose.foundation.shape.RoundedCornerShape(S.radiusLg)
+    Box(
+        Modifier.fillMaxWidth().height(150.dp)
+            .clip(shape)
+            .background(androidx.compose.ui.graphics.Brush.linearGradient(listOf(theme.top, theme.bottom)))
+            .border(1.dp, androidx.compose.ui.graphics.Brush.verticalGradient(listOf(C.rimLight, C.rim.copy(alpha = 0.1f))), shape)
+    ) {
+        Row(Modifier.fillMaxSize().padding(horizontal = 22.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Crest(homeLogo, 58.dp)
+                Txt(m.home, T.label, maxLines = 1)
+            }
+            Column(Modifier.weight(1.3f), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Txt((m.competition ?: theme.name).uppercase(), T.section.copy(letterSpacing = 1.6.sp), color = theme.accent, maxLines = 1)
+                when {
+                    live -> Txt("LIVE", T.label, color = Color.White,
+                        modifier = Modifier.background(C.live, androidx.compose.foundation.shape.RoundedCornerShape(S.radiusSm)).padding(horizontal = 10.dp, vertical = 2.dp))
+                    k != null -> Txt(timeFmt.format(Date(k)), T.display)
+                    else -> Txt("v", T.display)
+                }
+                if (k != null && now < k) {
+                    val sLeft = (k - now) / 1000
+                    Txt("Kick-off in %02d:%02d:%02d".format(sLeft / 3600, (sLeft % 3600) / 60, sLeft % 60), T.caption.copy(fontFeatureSettings = "tnum"), color = C.ink)
+                }
+                Txt(channels?.let { if (it == 0) "No channels found" else "$it channel${if (it == 1) "" else "s"} · 4K first" } ?: "Finding channels…", T.caption, color = C.inkMuted)
+            }
+            Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Crest(awayLogo, 58.dp)
+                Txt(m.away, T.label, maxLines = 1)
             }
         }
     }

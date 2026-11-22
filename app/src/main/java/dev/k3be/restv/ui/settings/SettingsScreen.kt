@@ -214,7 +214,9 @@ private fun AccountPane(app: RestvApp, session: Session, sync: SyncState, onSync
     val dateFmt = remember { SimpleDateFormat("d MMM yyyy", Locale.getDefault()) }
     val timeFmt = remember { SimpleDateFormat("d MMM, HH:mm", Locale.getDefault()) }
     val login = session.login
-    Txt(session.account.name, T.titleLg)
+    val switchProfiles = LocalSwitchProfiles.current
+    Txt(session.profile?.name ?: session.account.name, T.titleLg)
+    TvButton("Switch or add profiles", icon = Icons.history) { switchProfiles() }
     val expiry = login.expiresAt?.let { "until ${dateFmt.format(Date(it))}" } ?: "no expiry date"
     Txt("${login.host.removePrefix("http://")} · $expiry · ${login.maxConnections} stream${if (login.maxConnections == 1) "" else "s"}", T.body, color = C.inkMuted)
     Txt(
@@ -339,6 +341,9 @@ private fun SecretPane(
     }
 }
 
+/** Opens "Who's watching?"; provided by the app root. */
+val LocalSwitchProfiles = androidx.compose.runtime.staticCompositionLocalOf<() -> Unit> { {} }
+
 @Composable
 private fun TeamsPane(app: RestvApp) {
     val pane = LocalPane.current
@@ -405,9 +410,16 @@ private fun PlayerPane(app: RestvApp) {
             )
         }
     }
+    var preview by remember { mutableStateOf(app.prefs.livePreview()) }
+    Row(horizontalArrangement = Arrangement.spacedBy(S.s2), verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = S.s3)) {
+        Txt("Live preview", T.label)
+        TvButton("On", primary = preview) { preview = true; app.prefs.setLivePreview(true) }
+        TvButton("Off", primary = !preview) { preview = false; app.prefs.setLivePreview(false) }
+    }
+    Txt("A small muted picture of the channel you're on, in Live. Turn it off if your subscription allows only one connection and it gets in the way.", T.caption, color = C.inkFaint, maxLines = 2)
     Txt("This TV reports: ${displayHdr(context) ?: "no HDR formats"}", T.body, color = C.inkFaint, modifier = Modifier.padding(top = S.s4))
     var cleared by remember { mutableStateOf<String?>(null) }
-    Txt("Skip intro and Next episode learn each show's intro and credits. Per show, manage them in the player under ▲ → Intro.", T.body, color = C.inkMuted, maxLines = 2, modifier = Modifier.padding(top = S.s3))
+    Txt("Skip intro, recap and credits use TheIntroDB (theintrodb.org) when it knows the episode, and otherwise learn each show from you. Per show: player ▲ → Intro.", T.body, color = C.inkMuted, maxLines = 2, modifier = Modifier.padding(top = S.s3))
     Row(horizontalArrangement = Arrangement.spacedBy(S.s2), verticalAlignment = Alignment.CenterVertically) {
         TvButton("Forget all saved intros") { cleared = "Forgot ${app.prefs.forgetAllIntros()} saved intros" }
         cleared?.let { Txt(it, T.body, color = C.success) }

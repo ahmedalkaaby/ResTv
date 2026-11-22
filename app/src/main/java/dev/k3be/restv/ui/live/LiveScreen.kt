@@ -127,6 +127,9 @@ fun LiveScreen(
     onNavigate: (SidebarItem) -> Unit,
 ) {
     val vm = rememberLiveViewModel(session)
+    // Muted picture of the focused channel (Settings → Player can turn it off).
+    val previewOn = (androidx.compose.ui.platform.LocalContext.current.applicationContext as RestvApp).prefs.livePreview()
+    val previewPlayer = rememberLivePreview()
     var recentMenu by remember { mutableStateOf<ChannelRow?>(null) }
     val categories by vm.categories.collectAsStateWithLifecycle()
     val selected by vm.selected.collectAsStateWithLifecycle()
@@ -214,13 +217,17 @@ fun LiveScreen(
                 .padding(vertical = 8.dp, horizontal = 4.dp),
         )
         Column(Modifier.weight(1f).fillMaxHeight().padding(top = S.safeY, start = S.s4, end = S.safeX)) {
-            InfoBand(
-                title = categories.firstOrNull { it.id == selected }?.name ?: "",
-                count = channels.size,
-                preview = preview,
-                categoryName = preview?.row?.main?.categoryId?.let { categoryNames[it] },
-                sync = sync,
-            )
+            androidx.compose.foundation.layout.Row(horizontalArrangement = Arrangement.spacedBy(S.s4)) {
+                InfoBand(
+                    title = categories.firstOrNull { it.id == selected }?.name ?: "",
+                    count = channels.size,
+                    preview = preview,
+                    categoryName = preview?.row?.main?.categoryId?.let { categoryNames[it] },
+                    sync = sync,
+                    modifier = Modifier.weight(1f),
+                )
+                if (previewOn) LivePreview(previewPlayer, session, preview?.row?.main, Modifier.width(262.dp).padding(bottom = 10.dp))
+            }
             ChannelGrid(
                 channels = channels,
                 favorites = favs,
@@ -233,7 +240,8 @@ fun LiveScreen(
                     val near = (1..6).flatMap { listOf(index + it, index - it) }.mapNotNull { channels.getOrNull(it) }
                     vm.focusChannel(row, near)
                 },
-                onPlay = { index -> onPlay(channels, index) },
+                // The preview stops first, so only the channel you open is streaming.
+                onPlay = { index -> previewPlayer.stop(); onPlay(channels, index) },
                 // In Recently watched, hold OK offers removing the channel; elsewhere it toggles favourite.
                 onLongPress = { index -> if (selected == RECENT_ID) recentMenu = channels[index] else vm.toggleFavorite(channels[index].main) },
                 onLeftEdge = ::focusSelectedCategory,

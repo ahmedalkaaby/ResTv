@@ -85,6 +85,52 @@ fun TitleOrLogo(title: String, logo: String?, height: androidx.compose.ui.unit.D
 /** One copy of a title in the picker: "English" / "EN · 4K · MKV · Netflix Movies". */
 data class VersionOption(val id: Long, val title: String, val detail: String)
 
+/** "EN · 4K", "AR SUBS · 1080p", "Netflix · HD": short enough for a chip. */
+fun chipLabel(raw: String, categoryName: String?, quality: Int): String {
+    val src = VodNaming.source(raw, categoryName)
+        ?: categoryName?.let { Naming.split(it).name.trim() }?.takeIf { it.isNotBlank() }?.take(14) ?: "Standard"
+    val q = Naming.qualityLabel(quality)
+    return if (q != null) "$src · $q" else src
+}
+
+/** The versions of a title as a row of glass chips; the one that plays is white-edged with a check. */
+@Composable
+fun VersionChips(options: List<VersionOption>, current: Long, onPick: (VersionOption) -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Txt("VERSION", T.section)
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp), contentPadding = PaddingValues(vertical = 4.dp, horizontal = 2.dp)) {
+            items(options.size, key = { options[it].id }) { i ->
+                val o = options[i]
+                val source = remember { MutableInteractionSource() }
+                val focused by source.collectIsFocusedAsState()
+                val selected = o.id == current
+                val scale by androidx.compose.animation.core.animateFloatAsState(if (focused) 1.05f else 1f, dev.k3be.restv.ui.theme.M.focus(), label = "chip")
+                val shape = RoundedCornerShape(50)
+                Row(
+                    Modifier
+                        .graphicsLayer { scaleX = scale; scaleY = scale }
+                        .height(34.dp)
+                        .then(
+                            when {
+                                focused -> Modifier.clip(shape).background(C.focus, shape)
+                                selected -> Modifier.glass(shape, 1.4f, dev.k3be.restv.ui.components.Glass.Regular).border(1.5.dp, C.ink.copy(alpha = 0.85f), shape)
+                                else -> Modifier.glass(shape, 1f, dev.k3be.restv.ui.components.Glass.Thin)
+                            }
+                        )
+                        .remoteClickable(source, { onPick(o) })
+                        .padding(horizontal = 14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    val fg = if (focused) C.focusInk else if (selected) C.ink else C.inkMuted
+                    if (selected) dev.k3be.restv.ui.components.Icon(Icons.check, fg, 14.dp)
+                    Txt(o.title, T.label, color = fg)
+                }
+            }
+        }
+    }
+}
+
 /** "Arabic subtitles", or the provider category ("Netflix Movies") when the name has no language tag. */
 fun versionTitle(raw: String, categoryName: String?): String =
     VodNaming.source(raw, categoryName)?.let(VodNaming::sourceDescription)
@@ -142,7 +188,7 @@ fun MovieDetailScreen(
 ) {
     val app = LocalContext.current.applicationContext as RestvApp
     val scope = rememberCoroutineScope()
-    val accountId = session.account.id
+    val accountId = session.viewer
     val loginId = session.login.id
     var movie by remember { mutableStateOf<MovieEntity?>(null) }
     var versions by remember { mutableStateOf<List<MovieEntity>>(emptyList()) }
@@ -233,11 +279,19 @@ fun MovieDetailScreen(
                             else app.db.wish().add(WishEntity(accountId, loginId, "movie", id, System.currentTimeMillis()))
                         }
                     }
-                    if (versions.size > 1) TvButton("Versions (${versions.size})") { picking = true }
                 }
-                // The copy that plays: language and quality, changeable here only.
-                val cat = cats[current.categoryId]
-                Txt("Playing:  ${versionTitle(current.rawName, cat)}  ·  ${Naming.qualityLabel(current.quality) ?: "SD"}", T.label, color = C.ink)
+                // The copy that plays: one press on a chip switches language or quality.
+                if (versions.size > 1) VersionChips(
+                    versions.map { v -> VersionOption(v.streamId, chipLabel(v.rawName, cats[v.categoryId], v.quality), versionDetail(v.rawName, v.quality, v.ext, cats[v.categoryId])) },
+                    current = current.streamId,
+                ) { o ->
+                    chosen = o.id
+                    app.prefs.setChosenVersion("movie", m.titleKey, o.id)
+                    toast = "Now playing: ${o.detail}"
+                } else {
+                    val cat = cats[current.categoryId]
+                    Txt("${versionTitle(current.rawName, cat)}  ·  ${Naming.qualityLabel(current.quality) ?: "SD"}", T.label, color = C.inkMuted)
+                }
             }
         }
         DetailExtras(
@@ -296,7 +350,7 @@ private fun SeriesDetailBody(
 ) {
     val app = LocalContext.current.applicationContext as RestvApp
     val scope = rememberCoroutineScope()
-    val accountId = session.account.id
+    val accountId = session.viewer
     val loginId = session.login.id
     var series by remember { mutableStateOf<SeriesEntity?>(null) }
     var info by remember { mutableStateOf<SeriesInfo?>(null) }
@@ -395,8 +449,16 @@ private fun SeriesDetailBody(
                         else app.db.wish().add(WishEntity(accountId, loginId, "series", id, System.currentTimeMillis()))
                     }
                 }
-                // Other versions of this show (EN, AR, AR SUBS…): one press switches.
-                if (versions.size > 1) TvButton("Versions (${versions.size})") { picking = true }
+            }
+            // Other versions of this show (EN, AR, AR SUBS…): one press switches.
+            if (versions.size > 1) Box(Modifier.padding(start = S.safeX)) {
+                VersionChips(
+                    versions.map { v -> VersionOption(v.seriesId, chipLabel(v.rawName, cats[v.categoryId], 0), versionTitle(v.rawName, cats[v.categoryId])) },
+                    current = id,
+                ) { o ->
+                    s?.let { app.prefs.setChosenVersion("series", it.titleKey, o.id) }
+                    if (o.id != id) onSwitch(o.id)
+                }
             }
             if (i != null && i.seasons.isNotEmpty()) {
                 LazyRow(contentPadding = PaddingValues(horizontal = S.safeX), horizontalArrangement = Arrangement.spacedBy(S.s2)) {

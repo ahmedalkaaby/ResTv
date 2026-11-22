@@ -20,6 +20,21 @@ interface AccountDao {
 }
 
 @Dao
+interface ProfileDao {
+    @Query("SELECT * FROM profile WHERE accountId = :accountId ORDER BY main DESC, createdAt")
+    suspend fun forAccount(accountId: Long): List<ProfileEntity>
+
+    @Insert
+    suspend fun insert(p: ProfileEntity): Long
+
+    @Query("UPDATE profile SET name = :name WHERE id = :id")
+    suspend fun rename(id: Long, name: String)
+
+    @Query("DELETE FROM profile WHERE id = :id AND main = 0")
+    suspend fun delete(id: Long)
+}
+
+@Dao
 interface LoginDao {
     @Query("SELECT * FROM xtream_login WHERE accountId = :accountId ORDER BY id LIMIT 1")
     suspend fun firstFor(accountId: Long): LoginEntity?

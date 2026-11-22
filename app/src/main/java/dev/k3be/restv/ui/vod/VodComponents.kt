@@ -129,7 +129,11 @@ fun rememberArt(card: VodCard?): dev.k3be.restv.data.Art? {
         app.art.peek(card.kind, card.title, card.year), card.kind, card.id,
     ) {
         value = app.art.peek(card.kind, card.title, card.year)
-        if (value == null) value = app.art.get(card.kind, card.id, card.title, card.year, card.backdrop)
+        if (value == null) {
+            // Not looked up yet: wait a moment, so skimming a row doesn't fire a lookup per card.
+            kotlinx.coroutines.delay(300)
+            value = app.art.get(card.kind, card.id, card.title, card.year, card.backdrop)
+        }
     }
     return state.value
 }
@@ -368,7 +372,7 @@ fun HeroInfo(hero: Hero?, modifier: Modifier = Modifier) {
 fun HeroBackdrop(url: String?) {
     // Moving quickly along a row doesn't load every picture: the backdrop follows once focus rests.
     val settled by androidx.compose.runtime.produceState(url, url) {
-        kotlinx.coroutines.delay(if (value == null) 0 else 220)
+        kotlinx.coroutines.delay(if (value == null) 0 else 700)
         value = url
     }
     androidx.compose.animation.Crossfade(targetState = settled, animationSpec = tween(dev.k3be.restv.ui.theme.M.backdropMs), label = "backdrop") { u -> Backdrop(u) }
