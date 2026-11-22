@@ -1,5 +1,7 @@
 package dev.k3be.restv.ui.vod
 
+import dev.k3be.restv.ui.components.backKey
+
 import dev.k3be.restv.ui.components.cardFocus
 
 import androidx.compose.animation.core.animateFloatAsState
@@ -98,7 +100,7 @@ fun VersionPicker(options: List<VersionOption>, current: Long, onPick: (VersionO
     val first = remember { FocusRequester() }
     LaunchedEffect(Unit) { runCatching { first.requestFocus() } }
     Column(
-        modifier.padding(16.dp).width(420.dp).fillMaxHeight().background(C.bg000.copy(alpha = 0.6f), RoundedCornerShape(S.radiusLg)).glass(RoundedCornerShape(S.radiusLg), 1.4f)
+        modifier.backKey(onClose).padding(16.dp).width(420.dp).fillMaxHeight().background(C.bg000.copy(alpha = 0.6f), RoundedCornerShape(S.radiusLg)).glass(RoundedCornerShape(S.radiusLg), 1.4f)
             .padding(start = S.s6, end = S.safeX, top = S.safeY + 8.dp, bottom = S.safeY),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {

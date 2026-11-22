@@ -75,11 +75,11 @@ fun PhoneInputDialog(
 
     Dialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Row(
-            Modifier.background(C.bg000.copy(alpha = 0.75f), RoundedCornerShape(28.dp)).glass(RoundedCornerShape(28.dp), 1.4f).padding(S.s6),
+            Modifier.background(C.bg000.copy(alpha = 0.75f), RoundedCornerShape(16.dp)).glass(RoundedCornerShape(16.dp), 1.4f).padding(S.s6),
             horizontalArrangement = Arrangement.spacedBy(S.s6),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Box(Modifier.size(232.dp).clip(RoundedCornerShape(18.dp)).background(Color.White).padding(12.dp), contentAlignment = Alignment.Center) {
+            Box(Modifier.size(232.dp).clip(RoundedCornerShape(16.dp)).background(Color.White).padding(12.dp), contentAlignment = Alignment.Center) {
                 if (qr != null) Image(qr, "QR code", filterQuality = FilterQuality.None, modifier = Modifier.size(208.dp))
                 else Txt(if (failed) "No network" else "…", T.label, color = Color.Black)
             }

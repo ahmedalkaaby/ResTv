@@ -80,6 +80,8 @@ class RestvApp : Application(), coil.ImageLoaderFactory {
     val imdb: ImdbCharts by lazy { ImdbCharts(http, json, filesDir) }
     val vod: VodRepo by lazy { VodRepo(db, xtream, imdb) }
     val art: dev.k3be.restv.data.Artwork by lazy { dev.k3be.restv.data.Artwork(http, json, filesDir, prefs, vod) }
+    /** Home and Movies/Series rows saved from the last session, so they show at once on launch. */
+    val snapshots: dev.k3be.restv.data.Snapshots by lazy { dev.k3be.restv.data.Snapshots(java.io.File(filesDir, "snapshots"), json) }
     val subdl: dev.k3be.restv.data.SubDl by lazy { dev.k3be.restv.data.SubDl(http, json, cacheDir) }
     val matches: MatchesRepo by lazy { MatchesRepo(http, json, db, prefs, filesDir) }
 }

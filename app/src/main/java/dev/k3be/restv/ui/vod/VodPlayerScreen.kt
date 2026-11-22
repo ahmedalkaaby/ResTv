@@ -4,6 +4,7 @@ import dev.k3be.restv.ui.components.glass
 
 import android.view.View
 import androidx.activity.compose.BackHandler
+import dev.k3be.restv.ui.components.backKey
 import androidx.annotation.OptIn
 import androidx.compose.foundation.background
 import androidx.compose.foundation.focusable
@@ -418,7 +419,7 @@ fun VodPlayerScreen(
 
     var lastBack by remember { mutableLongStateOf(0L) }
     var exitHint by remember { mutableStateOf(false) }
-    BackHandler {
+    fun handleBack() {
         when {
             panelOpen -> panelOpen = false
             showSkipIntro -> introDismissed = true
@@ -434,6 +435,7 @@ fun VodPlayerScreen(
             else -> { lastBack = System.currentTimeMillis(); exitHint = true }
         }
     }
+    BackHandler { handleBack() }
     LaunchedEffect(exitHint) { if (exitHint) { delay(dev.k3be.restv.BACK_CONFIRM_MS); exitHint = false } }
 
     fun seek(deltaMs: Long) {
@@ -458,6 +460,7 @@ fun VodPlayerScreen(
         Modifier
             .fillMaxSize()
             .background(Color.Black)
+            .backKey { handleBack() }
             .focusRequester(focus)
             .focusable()
             .onKeyEvent { ev ->
@@ -559,7 +562,7 @@ fun VodPlayerScreen(
                     .align(Alignment.BottomStart)
                     .fillMaxWidth()
                     .padding(start = S.safeX - 12.dp, end = S.safeX - 12.dp, bottom = S.safeY - 8.dp)
-                    .glass(RoundedCornerShape(24.dp), 1.3f)
+                    .glass(RoundedCornerShape(16.dp), 1.3f)
                     .padding(horizontal = 20.dp, vertical = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(7.dp),
             ) {
@@ -726,7 +729,7 @@ private fun AvPanel(
     Row(
         modifier.fillMaxWidth()
             .padding(start = S.safeX - 16.dp, end = S.safeX - 16.dp, bottom = S.safeY - 8.dp)
-            .glass(RoundedCornerShape(26.dp), 1.35f)
+            .glass(RoundedCornerShape(16.dp), 1.35f)
             .padding(start = 16.dp, end = 16.dp, top = 18.dp, bottom = 16.dp),
         horizontalArrangement = Arrangement.spacedBy(S.s4),
     ) {

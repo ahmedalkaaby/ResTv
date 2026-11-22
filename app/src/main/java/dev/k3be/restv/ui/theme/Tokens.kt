@@ -60,9 +60,9 @@ object S {
     val s8 = 32.dp
     val safeX = 48.dp
     val safeY = 27.dp
-    val radiusSm = 8.dp
-    val radiusMd = 12.dp
-    val radiusLg = 22.dp
+    val radiusSm = 5.dp
+    val radiusMd = 8.dp
+    val radiusLg = 16.dp
     val radiusPill = 50
 }
 
@@ -89,13 +89,13 @@ object T {
         Font(R.font.inter_extra_bold, FontWeight.Black),
     )
     private val f = inter
-    val displayXl = TextStyle(fontFamily = f, fontSize = 46.sp, lineHeight = 50.sp, fontWeight = FontWeight.ExtraBold, color = C.ink, letterSpacing = (-1.2).sp)
-    val display = TextStyle(fontFamily = f, fontSize = 32.sp, lineHeight = 38.sp, fontWeight = FontWeight.Bold, color = C.ink, letterSpacing = (-0.6).sp)
-    val titleLg = TextStyle(fontFamily = f, fontSize = 22.sp, lineHeight = 28.sp, fontWeight = FontWeight.Bold, color = C.ink, letterSpacing = (-0.3).sp)
-    val title = TextStyle(fontFamily = f, fontSize = 18.sp, lineHeight = 24.sp, fontWeight = FontWeight.Bold, color = C.ink, letterSpacing = (-0.2).sp)
-    val bodyLg = TextStyle(fontFamily = f, fontSize = 16.sp, lineHeight = 24.sp, fontWeight = FontWeight.Normal, color = C.ink)
-    val body = TextStyle(fontFamily = f, fontSize = 14.sp, lineHeight = 20.sp, fontWeight = FontWeight.Medium, color = C.ink)
-    val label = TextStyle(fontFamily = f, fontSize = 14.sp, lineHeight = 18.sp, fontWeight = FontWeight.SemiBold, color = C.ink)
-    val caption = TextStyle(fontFamily = f, fontSize = 12.sp, lineHeight = 16.sp, fontWeight = FontWeight.Medium, color = C.ink)
-    val section = TextStyle(fontFamily = f, fontSize = 11.sp, lineHeight = 14.sp, fontWeight = FontWeight.Bold, color = C.inkFaint, letterSpacing = 1.4.sp)
+    val displayXl = TextStyle(fontFamily = f, fontSize = 40.sp, lineHeight = 44.sp, fontWeight = FontWeight.ExtraBold, color = C.ink, letterSpacing = (-1.2).sp)
+    val display = TextStyle(fontFamily = f, fontSize = 28.sp, lineHeight = 33.sp, fontWeight = FontWeight.Bold, color = C.ink, letterSpacing = (-0.6).sp)
+    val titleLg = TextStyle(fontFamily = f, fontSize = 19.sp, lineHeight = 24.sp, fontWeight = FontWeight.Bold, color = C.ink, letterSpacing = (-0.3).sp)
+    val title = TextStyle(fontFamily = f, fontSize = 16.sp, lineHeight = 21.sp, fontWeight = FontWeight.Bold, color = C.ink, letterSpacing = (-0.2).sp)
+    val bodyLg = TextStyle(fontFamily = f, fontSize = 15.sp, lineHeight = 22.sp, fontWeight = FontWeight.Normal, color = C.ink)
+    val body = TextStyle(fontFamily = f, fontSize = 13.sp, lineHeight = 18.sp, fontWeight = FontWeight.Medium, color = C.ink)
+    val label = TextStyle(fontFamily = f, fontSize = 13.sp, lineHeight = 17.sp, fontWeight = FontWeight.SemiBold, color = C.ink)
+    val caption = TextStyle(fontFamily = f, fontSize = 11.sp, lineHeight = 15.sp, fontWeight = FontWeight.Medium, color = C.ink)
+    val section = TextStyle(fontFamily = f, fontSize = 10.sp, lineHeight = 14.sp, fontWeight = FontWeight.Bold, color = C.inkFaint, letterSpacing = 1.4.sp)
 }

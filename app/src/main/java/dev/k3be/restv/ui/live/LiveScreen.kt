@@ -1,5 +1,7 @@
 package dev.k3be.restv.ui.live
 
+import dev.k3be.restv.ui.components.backKey
+
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -267,7 +269,7 @@ private fun CategoriesPane(
         if (entries.isNotEmpty() && !initialFocusDone && !restoringChannel) { initialFocusDone = true; onInitialFocus() }
     }
 
-    Column(modifier) {
+    Column(if (movingId != null || menuFor != null) modifier.backKey { if (menuFor != null) menuFor = null else vm.cancelMove() } else modifier) {
         val menu = menuFor
         if (menu != null) {
             CategoryMenu(

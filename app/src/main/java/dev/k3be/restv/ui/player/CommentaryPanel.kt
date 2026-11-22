@@ -59,7 +59,7 @@ fun CommentaryPanel(
             .padding(top = 16.dp, bottom = 16.dp, end = 16.dp)
             .width(380.dp)
             .fillMaxHeight()
-            .glass(RoundedCornerShape(26.dp), 1.5f)
+            .glass(RoundedCornerShape(16.dp), 1.5f)
             .padding(start = S.s4 + 4.dp, end = S.s4 + 4.dp, top = S.s4 + 4.dp, bottom = S.s4),
         verticalArrangement = Arrangement.spacedBy(S.s2),
     ) {

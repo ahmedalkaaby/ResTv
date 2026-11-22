@@ -183,6 +183,7 @@ class HomeViewModel(
 
     fun loadExtras() {
         viewModelScope.launch {
+            if (_extra.value.isEmpty()) app.snapshots.read("extra-$loginId")?.let { if (_extra.value.isEmpty()) _extra.value = it }
             val dao = app.db.vod()
             if (dao.countMovies(loginId) + dao.countSeries(loginId) == 0) return@launch
             val out = ArrayList<dev.k3be.restv.ui.vod.Rail>()
@@ -217,6 +218,7 @@ class HomeViewModel(
             val mix = (topM.take(80) + topS.take(80)).shuffled(java.util.Random(day)).take(24)
             if (mix.size >= 6) out += dev.k3be.restv.ui.vod.Rail("x-mix", "Today's mix", mix)
             _extra.value = out
+            app.snapshots.write("extra-$loginId", out)
         }
     }
 }

@@ -2,6 +2,7 @@ package dev.k3be.restv.ui.player
 
 import android.view.View
 import androidx.activity.compose.BackHandler
+import dev.k3be.restv.ui.components.backKey
 import androidx.annotation.OptIn
 import androidx.compose.foundation.background
 import androidx.compose.foundation.focusable
@@ -141,8 +142,10 @@ fun PlayerScreen(
     val commentaryDelay by commentary.delayMs.collectAsStateWithLifecycle()
     val commentaryOn = commentaryState !is CommentaryState.Off
     var chipVisible by remember { mutableStateOf(false) }
-    LaunchedEffect(commentary.source, commentaryOpen) {
-        if (commentary.source != null && !commentaryOpen) { chipVisible = true; delay(5_000); chipVisible = false }
+    // The chip stays while the commentary is loading or reconnecting, then shows 4 s once it plays.
+    val commentaryWaiting = commentaryState is CommentaryState.Filling || commentaryState is CommentaryState.Reconnecting
+    LaunchedEffect(commentary.source, commentaryOpen, commentaryState is CommentaryState.Playing) {
+        if (commentary.source != null && !commentaryOpen) { chipVisible = true; delay(4_000); chipVisible = false }
     }
 
     var overlayToken by remember { mutableIntStateOf(1) }
@@ -221,7 +224,7 @@ fun PlayerScreen(
     LaunchedEffect(listOpen, commentaryOpen) { if (!listOpen && !commentaryOpen) runCatching { focus.requestFocus() } }
 
     // Back closes the channel list first; closing the channel itself takes two presses.
-    BackHandler {
+    fun handleBack() {
         if (commentaryOpen) {
             commentaryOpen = false
         } else if (panel == Panel.Categories) {
@@ -233,11 +236,13 @@ fun PlayerScreen(
             if (now - lastBack < BACK_CONFIRM_MS) onExit() else { lastBack = now; exitHint = true }
         }
     }
+    BackHandler { handleBack() }
 
     Box(
         Modifier
             .fillMaxSize()
             .background(Color.Black)
+            .backKey { handleBack() }
             .focusRequester(focus)
             .focusable()
             .onKeyEvent { ev ->
@@ -328,7 +333,7 @@ fun PlayerScreen(
 
         // The commentary chip shows for 5 s after picking a source (and with the info bar), so it never
         // sits over the score in the corner.
-        if (commentaryOn && !commentaryOpen && (chipVisible || overlayVisible)) {
+        if (commentaryOn && !commentaryOpen && (chipVisible || overlayVisible || commentaryWaiting)) {
             CommentaryChip(commentary.source?.name ?: "", commentaryState, Modifier.align(Alignment.TopStart).padding(top = S.safeY, start = S.safeX))
         }
 
@@ -527,7 +532,7 @@ private fun InfoOverlay(
                 .align(Alignment.BottomStart)
                 .fillMaxWidth()
                 .padding(start = S.safeX - 12.dp, end = S.safeX - 12.dp, bottom = S.safeY - 8.dp)
-                .glass(RoundedCornerShape(24.dp), 1.3f)
+                .glass(RoundedCornerShape(16.dp), 1.3f)
                 .padding(horizontal = 18.dp, vertical = 16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {

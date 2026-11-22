@@ -75,6 +75,17 @@ fun Txt(
     )
 }
 
+/**
+ * Catches Back before the focus system does. On Android TV the first Back otherwise only clears the
+ * highlight (nothing selected, the menu still open); handled here it always does [onBack] at once.
+ */
+fun Modifier.backKey(onBack: () -> Unit): Modifier = this.onPreviewKeyEvent { ev ->
+    if (ev.key == Key.Back || ev.key == Key.Escape) {
+        if (ev.type == KeyEventType.KeyUp) onBack()
+        true
+    } else false
+}
+
 private fun isOk(key: Key) = key == Key.DirectionCenter || key == Key.Enter || key == Key.NumPadEnter
 
 /**

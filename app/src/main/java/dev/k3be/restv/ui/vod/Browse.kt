@@ -22,9 +22,12 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
 /** How much of the next row's title shows under the focused row. */
-val PEEK = 34.dp
+val PEEK = 72.dp
 
-private val glide: AnimationSpec<Float> = tween(110, easing = FastOutSlowInEasing)
+/** Apple-style deceleration: quick to start, a long soft landing. */
+private val settle = androidx.compose.animation.core.CubicBezierEasing(0.2f, 0f, 0f, 1f)
+private val glide: AnimationSpec<Float> = tween(340, easing = settle)
+private val slide: AnimationSpec<Float> = tween(260, easing = settle)
 
 /**
  * Vertical: the focused row always slides into the same slot (its posters' top at [pivotPx]),
@@ -41,7 +44,7 @@ private class PivotSpec(private val pivotPx: Float) : BringIntoViewSpec {
 @OptIn(ExperimentalFoundationApi::class)
 private class KeepInViewSpec(private val leadPx: Float, private val trailPx: Float) : BringIntoViewSpec {
     @Deprecated("Animation spec is part of BringIntoViewSpec in this Compose version")
-    override val scrollAnimationSpec: AnimationSpec<Float> get() = glide
+    override val scrollAnimationSpec: AnimationSpec<Float> get() = slide
     override fun calculateScrollDistance(offset: Float, size: Float, containerSize: Float): Float = when {
         offset < leadPx -> offset - leadPx
         offset + size > containerSize - trailPx -> (offset + size) - (containerSize - trailPx)
@@ -49,7 +52,7 @@ private class KeepInViewSpec(private val leadPx: Float, private val trailPx: Flo
     }
 }
 
-/** Rows under the hero: one row in view, the next row's title peeking below. */
+/** Rows under the hero: one row in view, the top of the next row peeking below. */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun BrowseRows(

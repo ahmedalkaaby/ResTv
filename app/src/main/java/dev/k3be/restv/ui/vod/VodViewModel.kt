@@ -29,6 +29,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 /** A poster in a rail. [kind] is "movie" or "series". */
+@kotlinx.serialization.Serializable
 data class VodCard(
     val kind: String,
     val id: Long,
@@ -50,6 +51,7 @@ data class VodCard(
     val otherSources: List<String> = emptyList(),
 )
 
+@kotlinx.serialization.Serializable
 data class Rail(val id: String, val title: String, val cards: List<VodCard>?, val accent: Boolean = false)
 
 data class Hero(val card: VodCard, val backdrop: String?, val plot: String?, val meta: String)
@@ -104,6 +106,11 @@ class VodViewModel(
     val gridFocus = HashMap<String, Long>()
 
     init {
+        // Last session's rows show at once; fresh ones replace them as they load.
+        viewModelScope.launch {
+            val snap = app.snapshots.read("rails-$kind-$loginId")
+            if (snap != null && fixed.value.isEmpty()) fixed.value = snap
+        }
         reload()
         viewModelScope.launch { recentWatch.collect { refreshPersonal() } }
         viewModelScope.launch { wish.collect { refreshPersonal() } }
@@ -178,6 +185,7 @@ class VodViewModel(
             val t = trending.await()
             val tp = top.await()
             fixed.value = platforms + listOfNotNull(t, tp) + latest
+            app.snapshots.write("rails-$kind-$loginId", fixed.value)
         }
     }
 

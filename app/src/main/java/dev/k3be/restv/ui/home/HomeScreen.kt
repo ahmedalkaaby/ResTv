@@ -106,19 +106,18 @@ fun HomeScreen(
     var liveMenu by remember { mutableStateOf<ChannelRow?>(null) }
     LaunchedEffect(toast) { if (toast != null) { delay(2_500); toast = null } }
 
-    // What the hero shows: a movie, a series, or a channel.
-    var heroKind by remember { mutableStateOf("movie") }
-    var heroChannel by remember { mutableStateOf<ChannelRow?>(null) }
-    var heroMatch by remember { mutableStateOf<MatchDay?>(null) }
+    // What the hero shows: a movie, a series, or a channel. Held in one object and read only by the
+    // hero's own composables, so moving focus redraws the artwork and title, not the whole screen.
+    val hero = remember { HeroFocus() }
 
     fun pick(list: List<Rail>, id: String) = list.firstOrNull { it.id == id }?.cards.orEmpty()
-    val rows: List<HomeRow> = buildList {
+    val rows: List<HomeRow> = remember(matchDay, cont, live, wish, movieRails, seriesRails, extra) { buildList {
         if (matchDay.isNotEmpty()) add(HomeRow.Matches("matchday", if (matchDay.size == 1) "Your team plays today" else "Your teams play today", matchDay))
         if (cont.isNotEmpty()) add(HomeRow.Vod(Rail("continue", "Continue watching", cont, accent = true)))
         if (live.isNotEmpty()) add(HomeRow.Live("live", "Live TV · recently watched", live))
         // Platforms that have movies or series in the subscription, in the usual order.
-        val platformNames = (pick(movieRails, "platforms") + pick(seriesRails, "platforms")).map { it.title }.distinct()
-            .sortedBy { dev.k3be.restv.data.VodNaming.platforms.indexOf(it) }
+        // Fixed: always there at once, no waiting for the library to load.
+        val platformNames = dev.k3be.restv.data.VodNaming.platforms
         if (platformNames.isNotEmpty()) add(HomeRow.Vod(Rail("platforms", "Streaming platforms",
             platformNames.mapIndexed { i, n -> VodCard("platform", -(i + 1).toLong(), n, null, null) })))
         if (wish.isNotEmpty()) add(HomeRow.Vod(Rail("wish", "My List", wish)))
@@ -129,7 +128,7 @@ fun HomeScreen(
         pick(movieRails, "latest").takeIf { it.isNotEmpty() }?.let { add(HomeRow.Vod(Rail("latest-m", "New movies", it))) }
         pick(seriesRails, "latest").takeIf { it.isNotEmpty() }?.let { add(HomeRow.Vod(Rail("latest-s", "New episodes", it))) }
         extra.forEach { add(HomeRow.Vod(it)) }
-    }
+    } }
 
     val start = remember { home.lastFocus }
     var restored by remember { mutableStateOf(false) }
@@ -138,19 +137,16 @@ fun HomeScreen(
     fun focusCard(rowId: String, c: VodCard) {
         restored = true
         home.lastFocus = "$rowId|${c.id}"
-        heroKind = if (c.kind == "platform") "movie" else c.kind
+        hero.kind = if (c.kind == "platform") "movie" else c.kind
         if (c.kind == "series") series.focus(c) else movies.focus(c)
     }
 
     Box(Modifier.fillMaxSize()) {
-        val hm = heroMatch
-        if (heroKind == "match" && hm != null) MatchBackdrop(hm) else HomeBackdrop(heroKind, movies, series)
+        HeroBackdropLayer(hero, movies, series)
         Column(Modifier.fillMaxSize()) {
             TopBar(SidebarItem.Home, onNavigate, autoHide = rows.isNotEmpty())
             Box(Modifier.fillMaxWidth().weight(1f)) {
-                if (heroKind == "match" && hm != null) MatchHero(hm, Modifier.align(Alignment.BottomStart))
-                else if (heroKind == "live") LiveHero(heroChannel, Modifier.align(Alignment.BottomStart))
-                else HomeHeroInfo(heroKind, movies, series, Modifier.align(Alignment.BottomStart))
+                HeroInfoLayer(hero, movies, series, Modifier.align(Alignment.BottomStart))
                 if (rows.isEmpty()) {
                     Txt("Nothing here yet. Open Movies or Series once to download your library.", T.bodyLg, color = C.inkMuted,
                         modifier = Modifier.align(Alignment.CenterStart).padding(start = S.safeX))
@@ -183,7 +179,7 @@ fun HomeScreen(
                             days = row.days,
                             nextTitle = next,
                             restoreId = if (restored) null else restoreKey ?: if (first) row.days.firstOrNull()?.match?.id else null,
-                            onFocus = { d -> restored = true; home.lastFocus = "${row.id}|${d.match.id}"; heroKind = "match"; heroMatch = d },
+                            onFocus = { d -> restored = true; home.lastFocus = "${row.id}|${d.match.id}"; hero.match = d; hero.kind = "match" },
                             onClick = { d -> app.matches.openMatchId = d.match.id; onNavigate(SidebarItem.Matches) },
                         )
                         is HomeRow.Live -> LiveRail(
@@ -191,7 +187,7 @@ fun HomeScreen(
                             rows = row.rows,
                             nextTitle = next,
                             restoreId = if (restored) null else restoreId ?: if (first) row.rows.firstOrNull()?.streamId else null,
-                            onFocus = { r -> restored = true; home.lastFocus = "${row.id}|${r.streamId}"; heroKind = "live"; heroChannel = r },
+                            onFocus = { r -> restored = true; home.lastFocus = "${row.id}|${r.streamId}"; hero.channel = r; hero.kind = "live" },
                             onClick = { index -> onPlayLive(row.rows, index) },
                             onLongClick = { r -> liveMenu = r },
                         )
@@ -225,6 +221,29 @@ fun HomeScreen(
             ),
             onClose = { liveMenu = null },
         )
+    }
+}
+
+/** What's focused on Home; only the hero's composables read it. */
+private class HeroFocus {
+    var kind by mutableStateOf("movie")
+    var channel by mutableStateOf<ChannelRow?>(null)
+    var match by mutableStateOf<MatchDay?>(null)
+}
+
+@Composable
+private fun HeroBackdropLayer(hero: HeroFocus, movies: dev.k3be.restv.ui.vod.VodViewModel, series: dev.k3be.restv.ui.vod.VodViewModel) {
+    val m = hero.match
+    if (hero.kind == "match" && m != null) MatchBackdrop(m) else HomeBackdrop(hero.kind, movies, series)
+}
+
+@Composable
+private fun HeroInfoLayer(hero: HeroFocus, movies: dev.k3be.restv.ui.vod.VodViewModel, series: dev.k3be.restv.ui.vod.VodViewModel, modifier: Modifier) {
+    val m = hero.match
+    when {
+        hero.kind == "match" && m != null -> MatchHero(m, modifier)
+        hero.kind == "live" -> LiveHero(hero.channel, modifier)
+        else -> HomeHeroInfo(hero.kind, movies, series, modifier)
     }
 }
 

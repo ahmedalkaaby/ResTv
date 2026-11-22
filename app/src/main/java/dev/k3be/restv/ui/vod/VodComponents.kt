@@ -52,8 +52,8 @@ import dev.k3be.restv.ui.theme.C
 import dev.k3be.restv.ui.theme.S
 import dev.k3be.restv.ui.theme.T
 
-val POSTER_W = 104.dp
-val POSTER_H = 156.dp
+val POSTER_W = 96.dp
+val POSTER_H = 144.dp
 
 /**
  * Full-screen artwork behind a screen. The whole picture shows; a soft shade on the left keeps the
@@ -113,11 +113,11 @@ fun LogoOrTitle(
     }
 }
 
-val WIDE_W = 236.dp
-val WIDE_H = 133.dp
+val WIDE_W = 212.dp
+val WIDE_H = 119.dp
 
 /** Height of one rail of wide cards: header, cards and room for the focus lift. */
-val RAIL_H = WIDE_H + 58.dp
+val RAIL_H = WIDE_H + 52.dp
 
 /** Artwork for a card: from the disk cache at once, otherwise looked up (TMDB or the provider). */
 @Composable

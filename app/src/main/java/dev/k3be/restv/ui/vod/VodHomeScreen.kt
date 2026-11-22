@@ -129,12 +129,10 @@ fun VodHomeScreen(
 @Composable
 private fun VodHeroBackdrop(vm: VodViewModel) {
     val hero by vm.hero.collectAsStateWithLifecycle()
-    // Wait for focus to settle before swapping the big picture: fast scrolling stays smooth.
-    var shown by remember { mutableStateOf<String?>(null) }
+    // HeroBackdrop waits for focus to settle before swapping the big picture.
     val art = rememberArt(hero?.card)
     val target = art?.backdrop ?: hero?.backdrop ?: hero?.card?.poster?.takeIf { vm.kind == "series" }
-    LaunchedEffect(target) { delay(150); shown = target }
-    HeroBackdrop(shown)
+    HeroBackdrop(target)
 }
 
 @Composable
