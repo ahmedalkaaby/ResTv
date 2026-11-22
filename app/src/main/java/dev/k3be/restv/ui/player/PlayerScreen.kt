@@ -495,8 +495,7 @@ private fun StatusChip(status: PlayStatus, modifier: Modifier) {
     }
     Row(
         modifier
-            .clip(RoundedCornerShape(50))
-            .background(C.bg100.copy(alpha = 0.92f))
+            .glass(RoundedCornerShape(50), 1.3f)
             .padding(horizontal = 14.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -519,14 +518,17 @@ private fun InfoOverlay(
     Box(
         modifier
             .fillMaxWidth()
-            .height(230.dp)
-            .background(Brush.verticalGradient(listOf(Color.Transparent, C.scrimStrong, C.scrimStrong)))
+            .height(250.dp)
+            .background(Brush.verticalGradient(listOf(Color.Transparent, C.bg000.copy(alpha = 0.55f))))
     ) {
+        // The info bar is a floating glass card, as on Apple TV.
         Column(
             Modifier
                 .align(Alignment.BottomStart)
                 .fillMaxWidth()
-                .padding(start = S.safeX, end = S.safeX, bottom = S.safeY),
+                .padding(start = S.safeX - 12.dp, end = S.safeX - 12.dp, bottom = S.safeY - 8.dp)
+                .glass(RoundedCornerShape(24.dp), 1.3f)
+                .padding(horizontal = 18.dp, vertical = 16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(S.s4)) {

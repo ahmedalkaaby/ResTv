@@ -1,5 +1,8 @@
 package dev.k3be.restv.ui.home
 
+import dev.k3be.restv.ui.components.cardFocus
+import androidx.compose.ui.graphics.Brush
+
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
@@ -235,9 +238,7 @@ private fun HomeBackdrop(kind: String, movies: dev.k3be.restv.ui.vod.VodViewMode
         "series" -> sh?.backdrop ?: sh?.card?.poster
         else -> null
     }
-    var shown by remember { mutableStateOf<String?>(null) }
-    LaunchedEffect(target) { delay(150); shown = target }
-    HeroBackdrop(shown)
+    HeroBackdrop(target)
 }
 
 @Composable
@@ -293,16 +294,14 @@ private fun LiveTile(row: ChannelRow, requestFocus: Boolean, onFocus: () -> Unit
     val fr = remember { FocusRequester() }
     if (focused) LaunchedEffect(Unit) { onFocus() }
     if (requestFocus) LaunchedEffect(Unit) { runCatching { fr.requestFocus() } }
-    val scale by animateFloatAsState(if (focused) 1.07f else 1f, androidx.compose.animation.core.tween(90), label = "tile")
+    val (scale, sheen) = dev.k3be.restv.ui.components.rememberCardFocus(focused)
     val shape = RoundedCornerShape(S.radiusMd)
     val ch = row.main
     Box(
         Modifier
             .size(240.dp, 135.dp)
-            .focusGlow(focused, shape)
-            .graphicsLayer { scaleX = scale; scaleY = scale; this.shape = shape; clip = true }
-            .background(C.bg200)
-            .border(1.5.dp, if (focused) Color.White.copy(alpha = 0.92f) else Color.White.copy(alpha = 0.06f), shape)
+            .cardFocus(focused, scale, shape, sheen)
+            .background(Brush.linearGradient(listOf(C.bg300, C.bg100)))
             .focusRequester(fr)
             .remoteClickable(source, onClick, onLongClick),
     ) {
@@ -315,6 +314,6 @@ private fun LiveTile(row: ChannelRow, requestFocus: Boolean, onFocus: () -> Unit
             Naming.qualityLabel(ch.quality)?.let { dev.k3be.restv.ui.vod.Chip(it, if (ch.quality == 3) C.uhd else C.ink) }
         }
         Txt(ch.name, T.caption, color = C.ink, modifier = Modifier.align(Alignment.BottomStart).fillMaxWidth()
-            .background(C.scrimStrong).padding(horizontal = 8.dp, vertical = 3.dp))
+            .background(Brush.verticalGradient(listOf(Color.Transparent, C.bg000.copy(alpha = 0.8f)))).padding(horizontal = 10.dp, vertical = 5.dp))
     }
 }

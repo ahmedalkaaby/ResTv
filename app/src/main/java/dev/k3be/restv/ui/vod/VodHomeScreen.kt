@@ -1,5 +1,7 @@
 package dev.k3be.restv.ui.vod
 
+import dev.k3be.restv.ui.components.glass
+
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
@@ -231,7 +233,7 @@ private fun FirstDownload(kind: String, sync: SyncState, focus: FocusRequester, 
     val label = if (kind == "movie") "movies" else "series"
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Column(
-            Modifier.width(520.dp).clip(RoundedCornerShape(S.radiusLg)).background(C.bg100).padding(S.s6),
+            Modifier.width(520.dp).glass(RoundedCornerShape(S.radiusLg), 1.2f).padding(S.s6),
             verticalArrangement = Arrangement.spacedBy(S.s3),
         ) {
             Txt(if (kind == "movie") "Getting your movies ready" else "Getting your series ready", T.titleLg)

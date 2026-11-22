@@ -5,6 +5,7 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -113,7 +114,7 @@ fun AppRoot(vm: AppViewModel = viewModel()) {
     var splashDone by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { delay(1_300); splashDone = true }
     CompositionLocalProvider(LocalTopBarFocus provides topBar) {
-    Box(Modifier.fillMaxSize().background(C.bg000)) {
+    Box(Modifier.fillMaxSize().ambientLight()) {
         when (val r = route) {
             Route.Home -> session?.let { s ->
                 saveable.SaveableStateProvider("home") {
@@ -222,5 +223,23 @@ private fun CrashReport() {
             dev.k3be.restv.ui.theme.T.caption.copy(fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace),
             color = C.inkMuted, maxLines = 28,
         )
+    }
+}
+
+
+/** Near-black with two faint coloured lights, drawn once: screens without artwork never look flat. */
+private fun Modifier.ambientLight(): Modifier = this.drawWithCache {
+    val blue = androidx.compose.ui.graphics.Brush.radialGradient(
+        listOf(androidx.compose.ui.graphics.Color(0x4D1D3A99), androidx.compose.ui.graphics.Color.Transparent),
+        center = androidx.compose.ui.geometry.Offset(size.width * 0.85f, size.height * 0.05f), radius = size.width * 0.55f,
+    )
+    val violet = androidx.compose.ui.graphics.Brush.radialGradient(
+        listOf(androidx.compose.ui.graphics.Color(0x333C1E78), androidx.compose.ui.graphics.Color.Transparent),
+        center = androidx.compose.ui.geometry.Offset(size.width * 0.1f, size.height * 0.95f), radius = size.width * 0.45f,
+    )
+    onDrawBehind {
+        drawRect(C.bg000)
+        drawRect(blue)
+        drawRect(violet)
     }
 }

@@ -110,6 +110,8 @@ dependencies {
     implementation("io.coil-kt:coil-compose:2.7.0")
     implementation("org.jsoup:jsoup:1.18.3")
     implementation("com.google.zxing:core:3.5.3")
+    // Installs the Compose libraries' baseline profiles on sideloaded installs, so scrolling is compiled ahead of time.
+    implementation("androidx.profileinstaller:profileinstaller:1.4.1")
     testImplementation("junit:junit:4.13.2")
     testImplementation(composeBom)
     testImplementation("androidx.compose.ui:ui-test-junit4")

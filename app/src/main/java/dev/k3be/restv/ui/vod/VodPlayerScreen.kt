@@ -1,5 +1,7 @@
 package dev.k3be.restv.ui.vod
 
+import dev.k3be.restv.ui.components.glass
+
 import android.view.View
 import androidx.activity.compose.BackHandler
 import androidx.annotation.OptIn
@@ -15,6 +17,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
@@ -548,13 +551,17 @@ fun VodPlayerScreen(
         }
 
         if ((overlay || !wantsPlay) && !panelOpen) {
+            Box(Modifier.align(Alignment.BottomStart).fillMaxWidth().height(260.dp)
+                .background(Brush.verticalGradient(listOf(Color.Transparent, C.bg000.copy(alpha = 0.55f)))))
+            // Transport: a floating glass card, as in the Apple TV player.
             Column(
                 Modifier
                     .align(Alignment.BottomStart)
                     .fillMaxWidth()
-                    .background(Brush.verticalGradient(listOf(Color.Transparent, C.scrimStrong)))
-                    .padding(start = S.safeX, end = S.safeX, bottom = S.safeY, top = 60.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp),
+                    .padding(start = S.safeX - 12.dp, end = S.safeX - 12.dp, bottom = S.safeY - 8.dp)
+                    .glass(RoundedCornerShape(24.dp), 1.3f)
+                    .padding(horizontal = 20.dp, vertical = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(7.dp),
             ) {
                 Txt(item.title, T.titleLg)
                 item.subtitle?.let { Txt(it, T.body, color = C.inkMuted) }
@@ -575,8 +582,8 @@ fun VodPlayerScreen(
                 }
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(S.s3)) {
                     Txt(if (playing) "▶" else "❚❚", T.label, color = C.accent)
-                    Txt(clock(position), T.label)
-                    ProgressBar(if (duration > 0) position.toFloat() / duration else 0f, Modifier.weight(1f), height = 6.dp)
+                    Txt(clock(position), T.label.copy(fontFeatureSettings = "tnum"))
+                    ProgressBar(if (duration > 0) position.toFloat() / duration else 0f, Modifier.weight(1f), height = 5.dp)
                     Txt(if (duration > 0) "-" + clock(duration - position) else "--:--", T.label, color = C.inkMuted)
                 }
                 Txt("◀ ▶ seek (hold to go faster)  ·  OK pause  ·  ▲ audio & subtitles", T.caption, color = C.inkFaint)
@@ -587,7 +594,7 @@ fun VodPlayerScreen(
             Txt(
                 "Skip intro  ▶", T.label, color = C.focusInk,
                 modifier = Modifier.align(Alignment.BottomEnd).padding(end = S.safeX, bottom = S.safeY + 110.dp)
-                    .background(C.focus, RoundedCornerShape(S.radiusMd)).padding(horizontal = 18.dp, vertical = 10.dp),
+                    .background(C.focus, RoundedCornerShape(50)).padding(horizontal = 22.dp, vertical = 11.dp),
             )
         }
 
@@ -595,7 +602,7 @@ fun VodPlayerScreen(
             val next = q[index + 1]
             Column(
                 Modifier.align(Alignment.BottomEnd).padding(end = S.safeX, bottom = S.safeY + 110.dp)
-                    .clip(RoundedCornerShape(S.radiusLg)).background(C.bg100.copy(alpha = 0.95f)).padding(S.s4),
+                    .glass(RoundedCornerShape(S.radiusLg), 1.3f).padding(S.s4),
                 verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 Txt("NEXT EPISODE IN $countdown", T.section)
@@ -715,11 +722,13 @@ private fun AvPanel(
 ) {
     val start = remember { FocusRequester() }
     LaunchedEffect(Unit) { runCatching { start.requestFocus() } }
+    // A floating glass sheet over the picture.
     Row(
         modifier.fillMaxWidth()
-            .background(Brush.verticalGradient(listOf(Color.Transparent, C.bg000.copy(alpha = 0.92f), C.bg000)))
-            .padding(start = S.safeX, end = S.safeX, top = 70.dp, bottom = S.safeY),
-        horizontalArrangement = Arrangement.spacedBy(S.s6),
+            .padding(start = S.safeX - 16.dp, end = S.safeX - 16.dp, bottom = S.safeY - 8.dp)
+            .glass(RoundedCornerShape(26.dp), 1.35f)
+            .padding(start = 16.dp, end = 16.dp, top = 18.dp, bottom = 16.dp),
+        horizontalArrangement = Arrangement.spacedBy(S.s4),
     ) {
         PanelColumn("Audio", audio, null, onClose, Modifier.weight(1f))
         PanelColumn("Subtitles", subtitles, start, onClose, Modifier.weight(1.3f))
@@ -743,10 +752,10 @@ private fun PanelColumn(title: String, rows: List<PanelRow>, focus: FocusRequest
                     selected = r.selected,
                     height = 44.dp,
                     onClick = { r.onClick?.invoke(); if (!r.keepOpen) onClose() },
-                ) { _ ->
+                ) { f ->
                     Row(Modifier.padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                         Txt(if (r.selected) "✓" else "", T.label, color = C.accent, modifier = Modifier.width(20.dp))
-                        Txt(r.label, T.label, color = if (r.selected) C.ink else C.inkMuted)
+                        Txt(r.label, T.label, color = if (r.selected || f) C.ink else C.inkMuted)
                     }
                 }
             }

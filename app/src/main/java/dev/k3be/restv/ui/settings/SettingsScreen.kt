@@ -356,7 +356,7 @@ private fun TeamsPane(app: RestvApp) {
     @Composable
     fun Group(title: String, names: List<String>, first: Modifier) {
         Txt(title, T.caption, color = C.inkFaint)
-        androidx.compose.foundation.lazy.LazyRow(horizontalArrangement = Arrangement.spacedBy(S.s2)) {
+        androidx.compose.foundation.lazy.LazyRow(horizontalArrangement = Arrangement.spacedBy(S.s2), contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp, vertical = 4.dp)) {
             items(names.size, key = { names[it] }) { i ->
                 val n = names[i]
                 val on = dev.k3be.restv.data.Teams.key(n) in keys
@@ -369,7 +369,7 @@ private fun TeamsPane(app: RestvApp) {
     Group("National teams", dev.k3be.restv.data.Teams.nations, pane.back)
     Txt("Other teams" + if (mine.isEmpty()) "" else " · OK removes one", T.caption, color = C.inkFaint)
     if (!typing) {
-        androidx.compose.foundation.lazy.LazyRow(horizontalArrangement = Arrangement.spacedBy(S.s2)) {
+        androidx.compose.foundation.lazy.LazyRow(horizontalArrangement = Arrangement.spacedBy(S.s2), contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp, vertical = 4.dp)) {
             items(mine.size, key = { mine[it] }) { i -> TvButton("✓ ${mine[i]}", primary = true, modifier = if (i == 0) pane.back else Modifier) { app.prefs.toggleFavoriteTeam(mine[i]) } }
             item { TvButton("Add a team", modifier = if (mine.isEmpty()) pane.back else Modifier) { typed = ""; typing = true } }
             item { dev.k3be.restv.ui.components.PhoneButton { phone = true } }

@@ -45,6 +45,7 @@ import dev.k3be.restv.ui.components.BadgeKind
 import dev.k3be.restv.ui.components.ProgressBar
 import dev.k3be.restv.ui.components.Txt
 import dev.k3be.restv.ui.components.focusGlow
+import dev.k3be.restv.ui.components.cardFocus
 import dev.k3be.restv.ui.components.glass
 import dev.k3be.restv.ui.components.remoteClickable
 import dev.k3be.restv.ui.theme.C
@@ -148,15 +149,13 @@ fun WideCard(
     val fr = remember { FocusRequester() }
     if (focused) LaunchedEffect(Unit) { onFocus() }
     if (requestFocus) LaunchedEffect(Unit) { runCatching { fr.requestFocus() } }
-    val scale by animateFloatAsState(if (focused) 1.06f else 1f, tween(90), label = "wide")
+    val (scale, sheen) = dev.k3be.restv.ui.components.rememberCardFocus(focused)
     val shape = RoundedCornerShape(S.radiusMd)
     Box(
         modifier
             .size(WIDE_W, WIDE_H)
-            .focusGlow(focused, shape)
-            .graphicsLayer { scaleX = scale; scaleY = scale; this.shape = shape; clip = true }
+            .cardFocus(focused, scale, shape, sheen)
             .background(C.bg200)
-            .border(1.5.dp, if (focused) Color.White.copy(alpha = 0.92f) else Color.White.copy(alpha = 0.06f), shape)
             .focusRequester(fr)
             .remoteClickable(source, onClick, onLongClick),
     ) {
@@ -219,20 +218,14 @@ fun PosterCard(
     val fr = remember { FocusRequester() }
     if (focused) LaunchedEffect(Unit) { onFocus() }
     if (requestFocus) LaunchedEffect(Unit) { runCatching { fr.requestFocus() } }
-    val scale by animateFloatAsState(
-        if (focused) 1.07f else 1f,
-        tween(90),
-        label = "poster",
-    )
+    val (scale, sheen) = dev.k3be.restv.ui.components.rememberCardFocus(focused)
     val shape = RoundedCornerShape(S.radiusMd)
     Column(modifier.width(width), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Box(
             Modifier
                 .size(width, height)
-                .focusGlow(focused, shape)
-                .graphicsLayer { scaleX = scale; scaleY = scale; this.shape = shape; clip = true }
+                .cardFocus(focused, scale, shape, sheen)
                 .background(C.bg200)
-                .border(1.5.dp, if (focused) Color.White.copy(alpha = 0.92f) else Color.White.copy(alpha = 0.06f), shape)
                 .focusRequester(fr)
                 .remoteClickable(source, onClick, onLongClick),
         ) {
@@ -253,7 +246,7 @@ fun PosterCard(
 fun Chip(text: String, color: Color) {
     Txt(
         text, T.caption.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Bold), color = color,
-        modifier = Modifier.background(C.scrimStrong, RoundedCornerShape(S.radiusSm)).padding(horizontal = 5.dp, vertical = 1.dp),
+        modifier = Modifier.background(Color.Black.copy(alpha = 0.45f), RoundedCornerShape(S.radiusSm)).border(1.dp, Color.White.copy(alpha = 0.18f), RoundedCornerShape(S.radiusSm)).padding(horizontal = 6.dp, vertical = 1.dp),
     )
 }
 
@@ -341,12 +334,12 @@ private fun SeeAllTile(onClick: () -> Unit) {
     val source = remember { MutableInteractionSource() }
     val focused by source.collectIsFocusedAsState()
     val shape = RoundedCornerShape(S.radiusMd)
+    val (scale, sheen) = dev.k3be.restv.ui.components.rememberCardFocus(focused)
     Box(
         Modifier
             .size(WIDE_H, WIDE_H)
-            .clip(shape)
-            .background(if (focused) C.focus else C.bg200)
-            .border(1.dp, C.line, shape)
+            .cardFocus(focused, scale, shape, sheen)
+            .background(if (focused) C.focus else C.glassRegular)
             .remoteClickable(source, onClick),
         contentAlignment = Alignment.Center,
     ) { Txt("See all ›", T.label, color = if (focused) C.focusInk else C.inkMuted, modifier = Modifier, maxLines = 1) }
@@ -373,7 +366,12 @@ fun HeroInfo(hero: Hero?, modifier: Modifier = Modifier) {
 /** Artwork behind the screen for the focused title. Its own composable, so only it redraws on focus. */
 @Composable
 fun HeroBackdrop(url: String?) {
-    androidx.compose.animation.Crossfade(targetState = url, animationSpec = tween(180), label = "backdrop") { u -> Backdrop(u) }
+    // Moving quickly along a row doesn't load every picture: the backdrop follows once focus rests.
+    val settled by androidx.compose.runtime.produceState(url, url) {
+        kotlinx.coroutines.delay(if (value == null) 0 else 220)
+        value = url
+    }
+    androidx.compose.animation.Crossfade(targetState = settled, animationSpec = tween(dev.k3be.restv.ui.theme.M.backdropMs), label = "backdrop") { u -> Backdrop(u) }
 }
 
 /** Placeholder posters that pulse while a rail loads. */

@@ -1,5 +1,7 @@
 package dev.k3be.restv.ui.vod
 
+import dev.k3be.restv.ui.components.cardFocus
+
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -478,17 +480,15 @@ private fun EpisodeCard(
     val fr = remember { FocusRequester() }
     if (focused) LaunchedEffect(Unit) { onFocus(); onFocused() }
     if (requestFocus) LaunchedEffect(Unit) { runCatching { fr.requestFocus() } }
-    val scale by animateFloatAsState(if (focused) 1.06f else 1f, tween(90), label = "ep")
+    val (scale, sheen) = dev.k3be.restv.ui.components.rememberCardFocus(focused)
     val shape = RoundedCornerShape(S.radiusMd)
     val finished = watch?.finished == true
     Column(Modifier.width(208.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Box(
             Modifier
                 .size(208.dp, 117.dp)
-                .graphicsLayer { scaleX = scale; scaleY = scale }
-                .clip(shape)
+                .cardFocus(focused, scale, shape, sheen)
                 .background(C.bg200)
-                .border(1.5.dp, if (focused) Color.White.copy(alpha = 0.92f) else Color.White.copy(alpha = 0.06f), shape)
                 .focusRequester(fr)
                 .remoteClickable(source, onClick, onLongClick),
         ) {

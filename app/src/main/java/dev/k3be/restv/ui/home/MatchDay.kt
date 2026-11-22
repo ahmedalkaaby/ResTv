@@ -51,6 +51,7 @@ import dev.k3be.restv.data.Broadcasters
 import dev.k3be.restv.data.Match
 import dev.k3be.restv.ui.components.Txt
 import dev.k3be.restv.ui.components.focusGlow
+import dev.k3be.restv.ui.components.cardFocus
 import dev.k3be.restv.ui.components.remoteClickable
 import dev.k3be.restv.ui.theme.C
 import dev.k3be.restv.ui.theme.S
@@ -245,7 +246,7 @@ private fun MatchCard(day: MatchDay, requestFocus: Boolean, onFocus: () -> Unit,
     val fr = remember { FocusRequester() }
     if (focused) LaunchedEffect(Unit) { onFocus() }
     if (requestFocus) LaunchedEffect(Unit) { runCatching { fr.requestFocus() } }
-    val scale by animateFloatAsState(if (focused) 1.06f else 1f, tween(90), label = "match")
+    val (scale, sheen) = dev.k3be.restv.ui.components.rememberCardFocus(focused)
     val shape = RoundedCornerShape(S.radiusMd)
     val m = day.match
     val theme = leagueTheme(m)
@@ -254,10 +255,8 @@ private fun MatchCard(day: MatchDay, requestFocus: Boolean, onFocus: () -> Unit,
     Box(
         Modifier
             .size(WIDE_W, WIDE_H)
-            .focusGlow(focused, shape)
-            .graphicsLayer { scaleX = scale; scaleY = scale; this.shape = shape; clip = true }
+            .cardFocus(focused, scale, shape, sheen)
             .background(Brush.linearGradient(listOf(theme.top, theme.bottom)))
-            .border(1.5.dp, if (focused) Color.White.copy(alpha = 0.92f) else theme.accent.copy(alpha = 0.25f), shape)
             .focusRequester(fr)
             .remoteClickable(source, onClick),
     ) {

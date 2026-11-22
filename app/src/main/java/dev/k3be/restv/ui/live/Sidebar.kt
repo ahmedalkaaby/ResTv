@@ -37,6 +37,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.graphics.Color
 import dev.k3be.restv.ui.components.Icon
 import dev.k3be.restv.ui.components.Icons
 import dev.k3be.restv.ui.components.Txt
@@ -89,12 +91,12 @@ fun TopBar(active: SidebarItem, onSelect: (SidebarItem) -> Unit, autoHide: Boole
             .graphicsLayer { this.alpha = alpha }
             .onFocusChanged { bar.hasFocus = it.hasFocus },
     ) {
-        Txt("Restv", T.title.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Black), color = C.accent, modifier = Modifier.align(Alignment.CenterStart))
+        Txt("Restv", T.titleLg.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.ExtraBold, letterSpacing = (-0.6).sp), color = C.ink, modifier = Modifier.align(Alignment.CenterStart))
         Row(
             Modifier.align(Alignment.Center)
-                .shadow(18.dp, RoundedCornerShape(50), clip = false)
-                .glass(RoundedCornerShape(50), 1.3f)
-                .padding(horizontal = 6.dp, vertical = 5.dp),
+                .glass(RoundedCornerShape(50), 1f, dev.k3be.restv.ui.components.Glass.Regular)
+                .background(C.bg000.copy(alpha = 0.25f), RoundedCornerShape(50))
+                .padding(horizontal = 5.dp, vertical = 5.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(2.dp),
         ) {
@@ -109,20 +111,25 @@ fun TopBar(active: SidebarItem, onSelect: (SidebarItem) -> Unit, autoHide: Boole
 private fun NavItem(item: SidebarItem, active: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
     val source = remember { MutableInteractionSource() }
     val focused by source.collectIsFocusedAsState()
+    val barFocused = LocalTopBarFocus.current.hasFocus
+    // The current tab is a white pill while you browse; on the bar itself, white follows focus.
+    val solid = focused || (active && !barFocused)
     val fg = when {
-        focused -> C.focusInk
+        solid -> C.focusInk
         active -> C.ink
-        else -> C.inkMuted
+        else -> C.ink.copy(alpha = 0.78f)
     }
+    val scale by androidx.compose.animation.core.animateFloatAsState(if (focused) 1.06f else 1f, dev.k3be.restv.ui.theme.M.focus(), label = "nav")
     Box(
         Modifier
+            .graphicsLayer { scaleX = scale; scaleY = scale }
             .height(36.dp)
             .clip(RoundedCornerShape(50))
             .background(
                 when {
-                    focused -> C.focus
-                    active -> C.ink.copy(alpha = 0.12f)
-                    else -> C.bg000.copy(alpha = 0f)
+                    solid -> C.focus
+                    active -> C.ink.copy(alpha = 0.16f)
+                    else -> Color.Transparent
                 }
             )
             .then(modifier)
@@ -130,10 +137,8 @@ private fun NavItem(item: SidebarItem, active: Boolean, modifier: Modifier = Mod
             .padding(horizontal = 16.dp),
         contentAlignment = Alignment.Center,
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            val iconOnly = item == SidebarItem.Search || item == SidebarItem.Settings
-            if (iconOnly) Icon(item.icon, if (active && !focused) C.accent else fg, 20.dp)
-            else Txt(item.label, T.label.copy(fontSize = T.label.fontSize.times(1.1f)), color = if (active && !focused) C.accent else fg)
-        }
+        val iconOnly = item == SidebarItem.Search || item == SidebarItem.Settings
+        if (iconOnly) Icon(item.icon, fg, 19.dp)
+        else Txt(item.label, T.label.copy(fontSize = T.label.fontSize.times(1.08f), fontWeight = if (solid || active) androidx.compose.ui.text.font.FontWeight.SemiBold else androidx.compose.ui.text.font.FontWeight.Medium), color = fg)
     }
 }

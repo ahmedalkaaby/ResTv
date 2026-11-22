@@ -1,5 +1,8 @@
 package dev.k3be.restv.ui.live
 
+import dev.k3be.restv.ui.components.cardFocus
+import dev.k3be.restv.ui.components.glass
+
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -76,7 +79,7 @@ fun InfoBand(
     sync: SyncState,
     modifier: Modifier = Modifier,
 ) {
-    Column(modifier.fillMaxWidth().height(150.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+    Column(modifier.fillMaxWidth().height(158.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Txt(title, T.caption, color = C.inkFaint)
             Spacer(Modifier.width(8.dp))
@@ -94,7 +97,10 @@ fun InfoBand(
             return@Column
         }
         val ch = row.main
-        Row(horizontalArrangement = Arrangement.spacedBy(S.s4), verticalAlignment = Alignment.Top) {
+        Row(
+            Modifier.fillMaxWidth().glass(RoundedCornerShape(S.radiusLg), 1f, dev.k3be.restv.ui.components.Glass.Regular).padding(12.dp),
+            horizontalArrangement = Arrangement.spacedBy(S.s4), verticalAlignment = Alignment.Top,
+        ) {
             ChannelLogo(ch, 76)
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -191,17 +197,15 @@ fun ChannelCard(
     val source = remember { MutableInteractionSource() }
     val focused by source.collectIsFocusedAsState()
     if (focused) LaunchedEffect(Unit) { onFocus() }
-    val scale by animateFloatAsState(if (focused) 1.06f else 1f, tween(90), label = "card")
+    val (scale, sheen) = dev.k3be.restv.ui.components.rememberCardFocus(focused)
     val shape = RoundedCornerShape(S.radiusMd)
     Box(
         modifier
             .zIndex(if (focused) 1f else 0f)
-            .graphicsLayer { scaleX = scale; scaleY = scale }
             .fillMaxWidth()
             .aspectRatio(16f / 9f)
-            .clip(shape)
-            .background(if (focused) C.bg300 else C.bg200)
-            .then(if (focused) Modifier.border(3.dp, C.focus, shape) else Modifier)
+            .cardFocus(focused, scale, shape, sheen)
+            .background(Brush.linearGradient(if (focused) listOf(Color(0xFF2C2D36), C.bg200) else listOf(C.bg300.copy(alpha = 0.9f), C.bg100)))
             .remoteClickable(source, onClick, onLongClick),
     ) {
         // Logo, centred in the upper part of the card.

@@ -208,7 +208,7 @@ fun LiveScreen(
             onRight = ::focusLastChannel,
             // A floating card of categories rather than a strip glued to the edge.
             modifier = Modifier.width(228.dp).fillMaxHeight().padding(top = S.s3, bottom = S.s4, start = 4.dp)
-                .glass(androidx.compose.foundation.shape.RoundedCornerShape(S.radiusLg))
+                .glass(androidx.compose.foundation.shape.RoundedCornerShape(S.radiusLg), 1f, dev.k3be.restv.ui.components.Glass.Regular)
                 .padding(vertical = 8.dp, horizontal = 4.dp),
         )
         Column(Modifier.weight(1f).fillMaxHeight().padding(top = S.safeY, start = S.s4, end = S.safeX)) {
@@ -378,8 +378,7 @@ private fun CategoryMenu(item: CatItem, onMove: () -> Unit, onPin: () -> Unit, o
     Column(
         Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(S.radiusLg))
-            .background(C.bg100)
+            .glass(RoundedCornerShape(S.radiusLg), 1.3f)
             .padding(S.s3),
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
@@ -398,7 +397,6 @@ private fun MenuOption(text: String, icon: androidx.compose.ui.graphics.vector.I
         Row(
             Modifier
                 .fillMaxSize()
-                .background(if (focused) C.focus else C.bg100.copy(alpha = 0f))
                 .padding(horizontal = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp),

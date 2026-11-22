@@ -1,5 +1,7 @@
 package dev.k3be.restv.ui.player
 
+import dev.k3be.restv.ui.components.glass
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -54,17 +56,18 @@ fun CommentaryPanel(
 
     Column(
         modifier
+            .padding(top = 16.dp, bottom = 16.dp, end = 16.dp)
             .width(380.dp)
             .fillMaxHeight()
-            .background(C.bg100.copy(alpha = 0.97f))
-            .padding(start = S.s6, end = S.safeX - S.s4, top = S.safeY, bottom = S.safeY),
+            .glass(RoundedCornerShape(26.dp), 1.5f)
+            .padding(start = S.s4 + 4.dp, end = S.s4 + 4.dp, top = S.s4 + 4.dp, bottom = S.s4),
         verticalArrangement = Arrangement.spacedBy(S.s2),
     ) {
         Txt("Commentary audio", T.title)
 
         if (active != null) {
             Column(
-                Modifier.fillMaxWidth().clip(RoundedCornerShape(S.radiusMd)).background(C.bg200).padding(S.s3),
+                Modifier.fillMaxWidth().glass(RoundedCornerShape(S.radiusLg - 4.dp), 1f, dev.k3be.restv.ui.components.Glass.Regular).padding(S.s3),
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
                 Txt(active.name, T.label, color = C.accent)
@@ -153,8 +156,7 @@ fun CommentaryChip(name: String, state: CommentaryState, modifier: Modifier) {
     }
     Row(
         modifier
-            .clip(RoundedCornerShape(50))
-            .background(C.bg100.copy(alpha = 0.9f))
+            .glass(RoundedCornerShape(50), 1.3f)
             .padding(horizontal = 12.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp),
