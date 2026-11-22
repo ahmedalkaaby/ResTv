@@ -50,6 +50,50 @@ class ArtworkTest {
         server.shutdown()
     }
 
+    @Test fun detailsCastCrewAndFacts() = runBlocking {
+        val server = MockWebServer()
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                val url = request.requestUrl!!
+                return MockResponse().setBody(
+                    when {
+                        url.encodedPath.endsWith("/movie/157336") && url.queryParameter("append_to_response")!!.contains("credits") -> """{
+                            "id":157336,"title":"Interstellar","tagline":"Mankind was born on Earth.","runtime":169,
+                            "release_date":"2014-11-05","vote_average":8.4,"vote_count":36000,"original_language":"en",
+                            "genres":[{"name":"Adventure"},{"name":"Drama"}],
+                            "production_companies":[{"name":"Legendary"},{"name":"Syncopy"}],
+                            "credits":{"cast":[{"name":"Matthew McConaughey","character":"Cooper","profile_path":"/mm.jpg"},{"name":"Anne Hathaway","character":"Brand","profile_path":null}],
+                                       "crew":[{"name":"Christopher Nolan","job":"Director","department":"Directing"},{"name":"Jonathan Nolan","job":"Writer","department":"Writing"}]},
+                            "release_dates":{"results":[{"iso_3166_1":"US","release_dates":[{"certification":"PG-13"}]}]},
+                            "recommendations":{"results":[{"title":"Inception","release_date":"2010-07-15"},{"title":"The Martian","release_date":"2015-09-30"}]}}"""
+                        else -> "{}"
+                    }
+                )
+            }
+        }
+        server.start()
+        val app = ApplicationProvider.getApplicationContext<RestvApp>()
+        app.prefs.setTmdbKey("KEY")
+        val dir = File(app.filesDir, "art-test2").apply { deleteRecursively(); mkdirs() }
+        val art = Artwork(app.http, app.json, dir, app.prefs, app.vod, server.url("/3").toString().trimEnd('/'))
+        val d = art.details("movie", "Interstellar", 2014, "157336")!!
+        assertEquals(listOf("Christopher Nolan"), d.directors)
+        assertEquals(listOf("Jonathan Nolan"), d.writers)
+        assertEquals("Cooper", d.cast.first().role)
+        assertEquals("https://image.tmdb.org/t/p/w185/mm.jpg", d.cast.first().photo)
+        assertEquals(null, d.cast[1].photo)
+        assertEquals("PG-13", d.certification)
+        assertEquals(169, d.runtimeMin)
+        assertEquals(listOf("Adventure", "Drama"), d.genres)
+        assertEquals("Inception" to 2010, d.similar.first())
+        assertEquals("English", d.language)
+        // The facts panel reads them in order.
+        val facts = dev.k3be.restv.ui.vod.detailFacts(d, "movie", null, null, null, null, 2014).toMap()
+        assertEquals("2 h 49 min", facts["Runtime"])
+        assertEquals("8.4 / 10 · 36,000 votes", facts["Score"])
+        server.shutdown()
+    }
+
     @Test fun keyCheckSaysWhatIsWrong() = runBlocking {
         val server = MockWebServer()
         server.dispatcher = object : Dispatcher() {

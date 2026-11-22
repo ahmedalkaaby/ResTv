@@ -4,6 +4,8 @@ import kotlinx.serialization.json.Json
 import okhttp3.OkHttpClient
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
 
@@ -34,6 +36,28 @@ class VodTest {
         assertEquals("English", dev.k3be.restv.ui.vod.versionTitle("Dune", "EN | Netflix Movies"))
         assertEquals("Standard", dev.k3be.restv.ui.vod.versionTitle("Dune", null))
         assertEquals("EN  ·  4K  ·  MKV  ·  Netflix Movies", dev.k3be.restv.ui.vod.versionDetail("Dune", 3, "mkv", "EN | Netflix Movies"))
+    }
+
+    @Test fun arabicSubsDetected() {
+        val yes = listOf(
+            "AR-SUBS - Dune Part Two (2024)" to null,
+            "[AR SUBS] Dune" to null,
+            "|AR-SUB| Dune" to null,
+            "Dune (2024) (Arabic Subbed)" to null,
+            "Dune 2024 AR.SUBS 1080p" to null,
+            "Dune" to "AR SUBS Movies",
+            "Dune" to "أفلام أجنبية مترجمة",
+            "ديون مترجم" to null,
+        )
+        yes.forEach { (raw, cat) -> assertTrue("$raw / $cat", VodNaming.hasArabicSubs(raw, cat)) }
+        val no = listOf(
+            "EN - Dune Part Two" to "EN | Movies",
+            "AR - Dune (Arabic dub)" to "Arabic Movies",
+            "Submarine (2010)" to null,
+            "Arabian Nights" to null,
+            "Dune" to "Subscriptions",
+        )
+        no.forEach { (raw, cat) -> assertFalse("$raw / $cat", VodNaming.hasArabicSubs(raw, cat)) }
     }
 
     @Test fun versionPreference() {

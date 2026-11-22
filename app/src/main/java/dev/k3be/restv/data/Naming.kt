@@ -139,6 +139,21 @@ object VodNaming {
         return from(raw) ?: categoryName?.let(::from)
     }
 
+    private val arabicSubsMark = Regex(
+        """(?i)(?<![A-Z])(AR|ARA|ARABIC)[\s._\-]*SUB(S|BED|TITLED|TITLES)?(?![A-Z])|SUB(S|BED)?[\s._\-]*(AR|ARABIC)(?![A-Z])|مترجم|ترجمة عربية""",
+    )
+
+    /**
+     * True when the provider marks this title (or its category) as carrying Arabic subtitles in the
+     * picture: "AR-SUBS - Title", "[AR SUBS]", "Title (Arabic Subbed)", "أفلام أجنبية مترجمة"…
+     */
+    fun hasArabicSubs(raw: String, categoryName: String? = null): Boolean {
+        val tag = source(raw, categoryName)
+        if (tag != null && tag.startsWith("AR") && "SUB" in tag) return true
+        return arabicSubsMark.containsMatchIn(Naming.normalize(raw)) ||
+            (categoryName != null && arabicSubsMark.containsMatchIn(Naming.normalize(categoryName)))
+    }
+
     private val notSources = setOf("THE", "4K", "UHD", "FHD", "HD", "SD", "VIP", "NEW", "TOP", "ALL")
 
     /** Friendly words for a source tag, for the details page. */

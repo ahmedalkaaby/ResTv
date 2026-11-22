@@ -176,10 +176,10 @@ fun AppRoot(vm: AppViewModel = viewModel()) {
                 key(r.name) { dev.k3be.restv.ui.vod.PlatformScreen(s, r.name, openCard) }
             }
             is Route.MovieDetail -> session?.let { s ->
-                key(r.id) { MovieDetailScreen(s, r.id) { q, i, fresh -> vm.go(Route.VodPlayer(q, i, fresh)) } }
+                key(r.id) { MovieDetailScreen(s, r.id, onOpen = openCard) { q, i, fresh -> vm.go(Route.VodPlayer(q, i, fresh)) } }
             }
             is Route.SeriesDetail -> session?.let { s ->
-                key(r.id) { SeriesDetailScreen(s, r.id) { q, i, fresh -> vm.go(Route.VodPlayer(q, i, fresh)) } }
+                key(r.id) { SeriesDetailScreen(s, r.id, onOpen = openCard) { q, i, fresh -> vm.go(Route.VodPlayer(q, i, fresh)) } }
             }
             is Route.VodPlayer -> session?.let { s ->
                 key(r) { VodPlayerScreen(s, r.queue, r.index, r.fromStart, onExit = { vm.back() }) }

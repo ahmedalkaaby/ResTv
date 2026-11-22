@@ -291,8 +291,7 @@ fun VodPlayerScreen(
             Triple(sr.rawName, sr.categoryId, "series")
         }
         val cat = app.db.vod().categories(loginId, kind).firstOrNull { it.categoryId == catId }?.rawName
-        val tag = VodNaming.source(raw, cat) ?: return false
-        tag.startsWith("AR") && "SUB" in tag
+        VodNaming.hasArabicSubs(raw, cat)
     }.getOrDefault(false)
 
     // Subtitles, per title:

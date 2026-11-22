@@ -1,5 +1,7 @@
 package dev.k3be.restv.ui.vod
 
+import androidx.compose.foundation.verticalScroll
+
 import dev.k3be.restv.ui.components.backKey
 
 import dev.k3be.restv.ui.components.cardFocus
@@ -135,6 +137,7 @@ fun VersionPicker(options: List<VersionOption>, current: Long, onPick: (VersionO
 fun MovieDetailScreen(
     session: Session,
     id: Long,
+    onOpen: (VodCard) -> Unit = {},
     onPlay: (List<PlayItem>, Int, Boolean) -> Unit,
 ) {
     val app = LocalContext.current.applicationContext as RestvApp
@@ -186,10 +189,18 @@ fun MovieDetailScreen(
         )
     }
 
+    val details = rememberTitleDetails("movie", i?.title ?: m.name, i?.year ?: m.year, i?.tmdbId)
+    val similar = rememberSimilar(loginId, "movie", m.titleKey, details)
+    val scroll = androidx.compose.foundation.rememberScrollState()
     Box(Modifier.fillMaxSize()) {
         val art = rememberArt(VodCard("movie", current.streamId, m.name, m.year, m.poster))
         Backdrop(art?.backdrop ?: i?.backdrop ?: m.poster, widthFraction = 0.8f, heightFraction = 1f)
-        Row(Modifier.fillMaxSize().padding(start = S.safeX, end = S.safeX, top = 64.dp), horizontalArrangement = Arrangement.spacedBy(S.s6)) {
+        // The picture dims as you scroll down to the cast and details.
+        Box(Modifier.fillMaxSize().graphicsLayer { alpha = (scroll.value / 500f).coerceIn(0f, 0.82f) }.background(C.bg000))
+        androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxSize()) {
+        val pageH = maxHeight
+        Column(Modifier.fillMaxSize().verticalScroll(scroll)) {
+        Row(Modifier.fillMaxWidth().height(pageH - 70.dp).padding(start = S.safeX, end = S.safeX, top = 64.dp), horizontalArrangement = Arrangement.spacedBy(S.s6)) {
             Column(Modifier.width(600.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 TitleOrLogo(i?.title ?: m.name, art?.logo)
                 Row(horizontalArrangement = Arrangement.spacedBy(S.s2), verticalAlignment = Alignment.CenterVertically) {
@@ -203,7 +214,7 @@ fun MovieDetailScreen(
                     if (current.quality == 3) Badge("4K", BadgeKind.Uhd)
                 }
                 Txt(i?.plot ?: if (error != null) "Couldn't load the details: $error" else "", T.bodyLg, color = C.inkMuted, maxLines = 3)
-                i?.cast?.let { Txt("Starring  $it", T.caption, color = C.inkFaint, maxLines = 1) }
+                details?.tagline?.let { Txt(it, T.caption, color = C.inkFaint, maxLines = 1) }
                 val w = watch
                 val started = w != null && w.positionMs > 30_000 && !w.finished
                 if (started && w != null) {
@@ -229,6 +240,15 @@ fun MovieDetailScreen(
                 Txt("Playing:  ${versionTitle(current.rawName, cat)}  ·  ${Naming.qualityLabel(current.quality) ?: "SD"}", T.label, color = C.ink)
             }
         }
+        DetailExtras(
+            details = details,
+            providerCast = i?.cast,
+            facts = detailFacts(details, "movie", i?.genre, i?.director, i?.durationMs, i?.rating ?: m.rating, i?.year ?: m.year),
+            similar = similar,
+            onOpen = onOpen,
+        )
+        }
+        }
         if (picking) VersionPicker(
             options = versions.map { v -> VersionOption(v.streamId, versionTitle(v.rawName, cats[v.categoryId]), versionDetail(v.rawName, v.quality, v.ext, cats[v.categoryId])) },
             current = chosen,
@@ -251,6 +271,7 @@ fun MovieDetailScreen(
 fun SeriesDetailScreen(
     session: Session,
     id: Long,
+    onOpen: (VodCard) -> Unit = {},
     onPlay: (List<PlayItem>, Int, Boolean) -> Unit,
 ) {
     // The version picked last time opens directly; switching versions happens on this page.
@@ -262,7 +283,7 @@ fun SeriesDetailScreen(
             ?.takeIf { c -> app.db.vod().seriesByKeys(session.login.id, listOf(s.titleKey)).any { it.seriesId == c } } ?: id
     }
     val c = current ?: return
-    androidx.compose.runtime.key(c) { SeriesDetailBody(session, c, { current = it }, onPlay) }
+    androidx.compose.runtime.key(c) { SeriesDetailBody(session, c, { current = it }, onOpen, onPlay) }
 }
 
 @Composable
@@ -270,6 +291,7 @@ private fun SeriesDetailBody(
     session: Session,
     id: Long,
     onSwitch: (Long) -> Unit,
+    onOpen: (VodCard) -> Unit,
     onPlay: (List<PlayItem>, Int, Boolean) -> Unit,
 ) {
     val app = LocalContext.current.applicationContext as RestvApp
@@ -336,10 +358,14 @@ private fun SeriesDetailBody(
         onPlay(queue(), index, w == null || w.finished)
     }
 
+    val details = rememberTitleDetails("series", title.ifBlank { null }, i?.year ?: s?.year, i?.tmdbId)
+    val similar = rememberSimilar(loginId, "series", s?.titleKey, details)
+    val scroll = androidx.compose.foundation.rememberScrollState()
     Box(Modifier.fillMaxSize()) {
         val art = s?.let { rememberArt(VodCard("series", it.seriesId, it.name, it.year, it.poster, backdrop = it.backdrop)) }
         Backdrop(art?.backdrop ?: i?.backdrop ?: s?.backdrop ?: s?.poster, widthFraction = 0.78f, heightFraction = 0.85f)
-        Column(Modifier.fillMaxSize().padding(top = S.safeY + 4.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Box(Modifier.fillMaxSize().graphicsLayer { alpha = (scroll.value / 500f).coerceIn(0f, 0.82f) }.background(C.bg000))
+        Column(Modifier.fillMaxSize().verticalScroll(scroll).padding(top = S.safeY + 4.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Column(Modifier.padding(start = S.safeX).width(600.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 TitleOrLogo(title, art?.logo, height = 76.dp)
                 val meta = listOfNotNull(
@@ -429,6 +455,14 @@ private fun SeriesDetailBody(
                     T.caption, color = C.inkMuted, maxLines = 2, modifier = Modifier.padding(horizontal = S.safeX),
                 )
             }
+            Spacer(Modifier.height(8.dp))
+            DetailExtras(
+                details = details,
+                providerCast = i?.cast ?: s?.let { null },
+                facts = detailFacts(details, "series", i?.genre ?: s?.genre, null, null, i?.rating ?: s?.rating, i?.year ?: s?.year),
+                similar = similar,
+                onOpen = onOpen,
+            )
         }
         if (picking) VersionPicker(
             options = versions.map { v -> VersionOption(v.seriesId, versionTitle(v.rawName, cats[v.categoryId]), versionDetail(v.rawName, 0, null, cats[v.categoryId]).replace("SD  ·  ", "")) },
