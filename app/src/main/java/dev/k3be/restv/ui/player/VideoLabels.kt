@@ -60,3 +60,25 @@ fun resolutionLabel(w: Int, h: Int): String? = when {
     h >= 700 || w >= 1260 -> "720p"
     else -> "SD"
 }
+
+/** "Dolby Digital+ · 5.1 · 640 kbps · 48 kHz" for the audio list. */
+fun audioDetail(f: Format): String {
+    val codec = when (f.sampleMimeType) {
+        MimeTypes.AUDIO_E_AC3_JOC -> "Dolby Atmos (DD+)"
+        MimeTypes.AUDIO_E_AC3 -> "Dolby Digital+"
+        MimeTypes.AUDIO_AC3 -> "Dolby Digital"
+        MimeTypes.AUDIO_TRUEHD -> "Dolby TrueHD"
+        MimeTypes.AUDIO_DTS -> "DTS"
+        MimeTypes.AUDIO_DTS_HD -> "DTS-HD"
+        MimeTypes.AUDIO_AAC -> "AAC"
+        MimeTypes.AUDIO_OPUS -> "Opus"
+        MimeTypes.AUDIO_MPEG -> "MP3"
+        MimeTypes.AUDIO_FLAC -> "FLAC"
+        MimeTypes.AUDIO_VORBIS -> "Vorbis"
+        else -> f.codecs ?: f.sampleMimeType?.substringAfter('/')?.uppercase()
+    }
+    val ch = when (f.channelCount) { 1 -> "Mono"; 2 -> "Stereo"; 6 -> "5.1"; 8 -> "7.1"; in 3..16 -> "${f.channelCount} ch"; else -> null }
+    val rate = f.bitrate.takeIf { it > 0 }?.let { "${it / 1000} kbps" }
+    val hz = f.sampleRate.takeIf { it > 0 }?.let { if (it % 1000 == 0) "${it / 1000} kHz" else "%.1f kHz".format(it / 1000f) }
+    return listOfNotNull(codec, ch, rate, hz).joinToString("  ·  ")
+}

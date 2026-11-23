@@ -26,6 +26,11 @@ class Prefs(context: Context) {
     fun chosenVersion(kind: String, titleKey: String): Long? = sp.getLong("ver_${kind}_$titleKey", -1L).takeIf { it >= 0 }
     fun setChosenVersion(kind: String, titleKey: String, id: Long) { sp.edit().putLong("ver_${kind}_$titleKey", id).apply() }
 
+    /** How subtitles look; the first time, built from the older size and box settings. */
+    fun subStyle(): SubStyle = SubStyle.decode(sp.getString("subStyle", null))
+        ?: SubStyle(size = listOf(1, 2, 3)[subSize().coerceIn(0, 2)], background = subBox())
+    fun setSubStyle(v: SubStyle) { sp.edit().putString("subStyle", v.encode()).apply() }
+
     /** Subtitle size 0 = small, 1 = medium, 2 = large; and whether lines get a dark box behind them. */
     fun subSize(): Int = sp.getInt("subSize", 1)
     fun setSubSize(v: Int) { sp.edit().putInt("subSize", v).apply() }
