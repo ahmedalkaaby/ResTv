@@ -42,7 +42,6 @@ fun PlatformScreen(session: Session, platform: String, onOpen: (VodCard) -> Unit
     val wishS by series.wishIds.collectAsStateWithLifecycle()
     var rails by remember { mutableStateOf<List<Rail>?>(null) }
     var counts by remember { mutableStateOf("") }
-    var focused by remember { mutableStateOf<VodCard?>(null) }
     LaunchedEffect(platform) {
         coroutineScope {
             val m = async { movies.platformCards(platform) }
@@ -64,15 +63,20 @@ fun PlatformScreen(session: Session, platform: String, onOpen: (VodCard) -> Unit
     }
     val colors = platformColors(platform)
     Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0f to colors.first(), 0.55f to colors.last(), 1f to C.bg000))) {
-        PlatformBackdrop(focused)
+        val slides = remember(rails) {
+            val l = rails.orEmpty()
+            (l.getOrNull(0)?.cards.orEmpty().take(4) + l.getOrNull(1)?.cards.orEmpty().take(4)).map { Slide(card = it) }
+        }
+        var slideIndex by remember { mutableStateOf(0) }
+        CarouselBackdrop(slides.getOrNull(slideIndex.coerceIn(0, (slides.size - 1).coerceAtLeast(0))))
         Column(Modifier.fillMaxSize()) {
             Column(Modifier.padding(start = S.safeX, top = S.safeY + 4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Txt(platform, T.displayXl.copy(fontSize = 46.sp, fontWeight = FontWeight.Black), color = C.ink)
                 Txt(counts.ifEmpty { "Loading…" }, T.label, color = C.inkMuted)
             }
             Box(Modifier.fillMaxWidth().weight(1f)) {
-                val hero = focused?.let { Hero(it, null, it.plot, listOfNotNull(it.year?.toString(), it.rating?.let { r -> "★ %.1f".format(r) }, it.genre).joinToString("  ·  ")) }
-                HeroInfo(hero, Modifier.align(Alignment.BottomStart))
+                CarouselInfo(slides, slideIndex, { slideIndex = it }, { sl -> sl.card?.let(onOpen) },
+                    Modifier.align(Alignment.BottomStart).padding(bottom = 10.dp), compact = true)
             }
             val list = rails
             if (list != null) {
@@ -83,7 +87,7 @@ fun PlatformScreen(session: Session, platform: String, onOpen: (VodCard) -> Unit
                         rail = rail,
                         wishIds = wishM + wishS,
                         restoreCardId = if (!restored && i == 0) rail.cards?.firstOrNull()?.id else null,
-                        onFocus = { c -> restored = true; focused = c },
+                        onFocus = { restored = true },
                         onClick = onOpen,
                         onLongClick = { c -> (if (c.kind == "movie") movies else series).toggleWish(c) },
                         onSeeAll = null,
@@ -92,13 +96,4 @@ fun PlatformScreen(session: Session, platform: String, onOpen: (VodCard) -> Unit
             }
         }
     }
-}
-
-@Composable
-private fun PlatformBackdrop(card: VodCard?) {
-    val art = rememberArt(card)
-    var shown by remember { mutableStateOf<String?>(null) }
-    val target = art?.backdrop ?: card?.backdrop
-    LaunchedEffect(target) { delay(150); shown = target }
-    if (shown != null) HeroBackdrop(shown)
 }

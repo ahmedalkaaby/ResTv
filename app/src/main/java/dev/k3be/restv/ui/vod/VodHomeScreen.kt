@@ -83,22 +83,28 @@ fun VodHomeScreen(
     LaunchedEffect(count) { if (count == 0 && sync !is SyncState.Running) onDownload() }
 
     val firstFocus = remember { FocusRequester() }
+    // The carousel up top; moving through the rows never changes it.
+    val slides = remember(rails) { featuredOf(rails) }
+    var slideIndex by androidx.compose.runtime.saveable.rememberSaveable(kind) { mutableStateOf(0) }
 
     Box(Modifier.fillMaxSize()) {
-        VodHeroBackdrop(vm)
+        CarouselBackdrop(slides.getOrNull(slideIndex.coerceIn(0, (slides.size - 1).coerceAtLeast(0))))
         Column(Modifier.fillMaxSize()) {
             TopBar(tab, onNavigate, autoHide = count != null && count!! > 0)
             when {
                 count == null -> {}
                 count == 0 -> FirstDownload(kind, sync, firstFocus, onDownload)
                 else -> {
-                    Box(Modifier.fillMaxWidth().weight(1f)) { VodHeroInfo(vm, Modifier.align(Alignment.BottomStart)) }
+                    Box(Modifier.fillMaxWidth().weight(1f)) {
+                        CarouselInfo(slides, slideIndex, { slideIndex = it }, { sl -> sl.card?.let(onOpen) },
+                            Modifier.align(Alignment.BottomStart).padding(bottom = 10.dp))
+                    }
                     OneRailAtATime(
                         rails = rails,
                         wishIds = wishIds,
                         restore = vm.lastFocus,
                         onRailShown = vm::loadRail,
-                        onFocus = { rail, c -> vm.focus(c); vm.lastFocus = "${rail.id}|${c.id}" },
+                        onFocus = { rail, c -> vm.lastFocus = "${rail.id}|${c.id}" },
                         onClick = onOpen,
                         onLongClick = { rail, c -> if (c.kind != "platform") menu = rail to c },
                         onSeeAll = { rail -> if ((rail.cards?.size ?: 0) >= 8 || rail.id.startsWith("cat:")) ({ onSeeAll(rail) }) else null },
@@ -124,21 +130,6 @@ fun VodHomeScreen(
             onClose = { menu = null },
         )
     }
-}
-
-@Composable
-private fun VodHeroBackdrop(vm: VodViewModel) {
-    val hero by vm.hero.collectAsStateWithLifecycle()
-    // HeroBackdrop waits for focus to settle before swapping the big picture.
-    val art = rememberArt(hero?.card)
-    val target = art?.backdrop ?: hero?.backdrop ?: hero?.card?.poster?.takeIf { vm.kind == "series" }
-    HeroBackdrop(target)
-}
-
-@Composable
-private fun VodHeroInfo(vm: VodViewModel, modifier: Modifier) {
-    val hero by vm.hero.collectAsStateWithLifecycle()
-    HeroInfo(hero, modifier)
 }
 
 /**

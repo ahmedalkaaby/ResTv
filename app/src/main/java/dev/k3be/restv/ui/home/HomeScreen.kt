@@ -30,6 +30,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -106,9 +107,11 @@ fun HomeScreen(
     var liveMenu by remember { mutableStateOf<ChannelRow?>(null) }
     LaunchedEffect(toast) { if (toast != null) { delay(2_500); toast = null } }
 
-    // What the hero shows: a movie, a series, or a channel. Held in one object and read only by the
-    // hero's own composables, so moving focus redraws the artwork and title, not the whole screen.
-    val hero = remember { HeroFocus() }
+    // The carousel at the top: your team's match today, then trending titles. Moving through the
+    // rows below never changes it or fetches anything, so scrolling stays smooth.
+    val slides = remember(matchDay, movieRails, seriesRails) { dev.k3be.restv.ui.vod.featuredSlides(movieRails, seriesRails, matchDay) }
+    var slideIndex by rememberSaveable { mutableStateOf(0) }
+    val heroButton = remember { androidx.compose.ui.focus.FocusRequester() }
 
     fun pick(list: List<Rail>, id: String) = list.firstOrNull { it.id == id }?.cards.orEmpty()
     val rows: List<HomeRow> = remember(matchDay, cont, live, wish, movieRails, seriesRails, extra) { buildList {
@@ -131,22 +134,34 @@ fun HomeScreen(
     } }
 
     val start = remember { home.lastFocus }
+    // First visit: the carousel's button has focus, as on Apple TV and Nuvio.
+    LaunchedEffect(slides.isNotEmpty()) {
+        if (start == null && slides.isNotEmpty()) { delay(60); runCatching { heroButton.requestFocus() } }
+    }
     var restored by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
 
     fun focusCard(rowId: String, c: VodCard) {
         restored = true
         home.lastFocus = "$rowId|${c.id}"
-        hero.kind = if (c.kind == "platform") "movie" else c.kind
-        if (c.kind == "series") series.focus(c) else movies.focus(c)
     }
 
     Box(Modifier.fillMaxSize()) {
-        HeroBackdropLayer(hero, movies, series)
+        dev.k3be.restv.ui.vod.CarouselBackdrop(slides.getOrNull(slideIndex.coerceAtMost(slides.lastIndex.coerceAtLeast(0))))
         Column(Modifier.fillMaxSize()) {
             TopBar(SidebarItem.Home, onNavigate, autoHide = rows.isNotEmpty())
             Box(Modifier.fillMaxWidth().weight(1f)) {
-                HeroInfoLayer(hero, movies, series, Modifier.align(Alignment.BottomStart))
+                dev.k3be.restv.ui.vod.CarouselInfo(
+                    slides = slides,
+                    index = slideIndex,
+                    onIndex = { slideIndex = it },
+                    onOpen = { sl ->
+                        sl.match?.let { app.matches.openMatchId = it.match.id; onNavigate(SidebarItem.Matches) }
+                        sl.card?.let(onOpen)
+                    },
+                    buttonRequester = heroButton,
+                    modifier = Modifier.align(Alignment.BottomStart).padding(bottom = 10.dp),
+                )
                 if (rows.isEmpty()) {
                     Txt("Nothing here yet. Open Movies or Series once to download your library.", T.bodyLg, color = C.inkMuted,
                         modifier = Modifier.align(Alignment.CenterStart).padding(start = S.safeX))
@@ -157,7 +172,7 @@ fun HomeScreen(
                     val next = rows.getOrNull(i + 1)?.title
                     val restoreKey = start?.takeIf { it.startsWith("${row.id}|") }?.substringAfter('|')
                     val restoreId = restoreKey?.toLongOrNull()
-                    val first = start == null && i == 0
+                    val first = start == null && i == 0 && slides.isEmpty()
                     when (row) {
                         is HomeRow.Vod -> RailRow(
                             rail = row.rail,
@@ -179,7 +194,7 @@ fun HomeScreen(
                             days = row.days,
                             nextTitle = next,
                             restoreId = if (restored) null else restoreKey ?: if (first) row.days.firstOrNull()?.match?.id else null,
-                            onFocus = { d -> restored = true; home.lastFocus = "${row.id}|${d.match.id}"; hero.match = d; hero.kind = "match" },
+                            onFocus = { d -> restored = true; home.lastFocus = "${row.id}|${d.match.id}"; },
                             onClick = { d -> app.matches.openMatchId = d.match.id; onNavigate(SidebarItem.Matches) },
                         )
                         is HomeRow.Live -> LiveRail(
@@ -187,7 +202,7 @@ fun HomeScreen(
                             rows = row.rows,
                             nextTitle = next,
                             restoreId = if (restored) null else restoreId ?: if (first) row.rows.firstOrNull()?.streamId else null,
-                            onFocus = { r -> restored = true; home.lastFocus = "${row.id}|${r.streamId}"; hero.channel = r; hero.kind = "live" },
+                            onFocus = { r -> restored = true; home.lastFocus = "${row.id}|${r.streamId}"; },
                             onClick = { index -> onPlayLive(row.rows, index) },
                             onLongClick = { r -> liveMenu = r },
                         )
@@ -224,64 +239,6 @@ fun HomeScreen(
     }
 }
 
-/** What's focused on Home; only the hero's composables read it. */
-private class HeroFocus {
-    var kind by mutableStateOf("movie")
-    var channel by mutableStateOf<ChannelRow?>(null)
-    var match by mutableStateOf<MatchDay?>(null)
-}
-
-@Composable
-private fun HeroBackdropLayer(hero: HeroFocus, movies: dev.k3be.restv.ui.vod.VodViewModel, series: dev.k3be.restv.ui.vod.VodViewModel) {
-    val m = hero.match
-    if (hero.kind == "match" && m != null) MatchBackdrop(m) else HomeBackdrop(hero.kind, movies, series)
-}
-
-@Composable
-private fun HeroInfoLayer(hero: HeroFocus, movies: dev.k3be.restv.ui.vod.VodViewModel, series: dev.k3be.restv.ui.vod.VodViewModel, modifier: Modifier) {
-    val m = hero.match
-    when {
-        hero.kind == "match" && m != null -> MatchHero(m, modifier)
-        hero.kind == "live" -> LiveHero(hero.channel, modifier)
-        else -> HomeHeroInfo(hero.kind, movies, series, modifier)
-    }
-}
-
-@Composable
-private fun HomeBackdrop(kind: String, movies: dev.k3be.restv.ui.vod.VodViewModel, series: dev.k3be.restv.ui.vod.VodViewModel) {
-    val mh by movies.hero.collectAsStateWithLifecycle()
-    val sh by series.hero.collectAsStateWithLifecycle()
-    val art = dev.k3be.restv.ui.vod.rememberArt(if (kind == "series") sh?.card else mh?.card)
-    val target = art?.backdrop ?: when (kind) {
-        "movie" -> mh?.backdrop
-        "series" -> sh?.backdrop ?: sh?.card?.poster
-        else -> null
-    }
-    HeroBackdrop(target)
-}
-
-@Composable
-private fun HomeHeroInfo(kind: String, movies: dev.k3be.restv.ui.vod.VodViewModel, series: dev.k3be.restv.ui.vod.VodViewModel, modifier: Modifier) {
-    val mh by movies.hero.collectAsStateWithLifecycle()
-    val sh by series.hero.collectAsStateWithLifecycle()
-    HeroInfo(if (kind == "series") sh else mh, modifier)
-}
-
-@Composable
-private fun LiveHero(row: ChannelRow?, modifier: Modifier) {
-    val ch = row?.main ?: return
-    Column(modifier.padding(start = S.safeX, bottom = S.s3), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Txt(ch.name, T.displayXl.copy(fontSize = T.display.fontSize.times(1.15f)), maxLines = 1)
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-            Badge("LIVE", BadgeKind.Live)
-            Naming.qualityLabel(ch.quality)?.let { Badge(it, if (ch.quality == 3) BadgeKind.Uhd else BadgeKind.Outline) }
-            Naming.sourceTag(ch.rawName)?.let { Badge(it, BadgeKind.Plain) }
-        }
-        Txt("Press OK to watch", T.bodyLg, color = C.inkMuted)
-    }
-}
-
-/** Recently watched channels as 16:9 tiles with their logos. */
 @Composable
 private fun LiveRail(
     title: String,

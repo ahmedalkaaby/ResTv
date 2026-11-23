@@ -111,6 +111,7 @@ fun DetailExtras(
                 }
             }
         }
+        TrailersRow(details?.videos.orEmpty())
         if (facts.isNotEmpty()) FactsPanel(details?.tagline, facts)
         if (similar.isNotEmpty()) {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {

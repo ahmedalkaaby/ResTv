@@ -240,7 +240,7 @@ fun MovieDetailScreen(
     val scroll = androidx.compose.foundation.rememberScrollState()
     Box(Modifier.fillMaxSize()) {
         val art = rememberArt(VodCard("movie", current.streamId, m.name, m.year, m.poster))
-        Backdrop(art?.backdrop ?: i?.backdrop ?: m.poster, widthFraction = 0.8f, heightFraction = 1f)
+        DetailBackdrop(art?.backdrop ?: i?.backdrop ?: m.poster)
         // The picture dims as you scroll down to the cast and details.
         Box(Modifier.fillMaxSize().graphicsLayer { alpha = (scroll.value / 500f).coerceIn(0f, 0.82f) }.background(C.bg000))
         androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxSize()) {
@@ -417,7 +417,7 @@ private fun SeriesDetailBody(
     val scroll = androidx.compose.foundation.rememberScrollState()
     Box(Modifier.fillMaxSize()) {
         val art = s?.let { rememberArt(VodCard("series", it.seriesId, it.name, it.year, it.poster, backdrop = it.backdrop)) }
-        Backdrop(art?.backdrop ?: i?.backdrop ?: s?.backdrop ?: s?.poster, widthFraction = 0.78f, heightFraction = 0.85f)
+        DetailBackdrop(art?.backdrop ?: i?.backdrop ?: s?.backdrop ?: s?.poster)
         Box(Modifier.fillMaxSize().graphicsLayer { alpha = (scroll.value / 500f).coerceIn(0f, 0.82f) }.background(C.bg000))
         Column(Modifier.fillMaxSize().verticalScroll(scroll).padding(top = S.safeY + 4.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Column(Modifier.padding(start = S.safeX).width(600.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -461,17 +461,22 @@ private fun SeriesDetailBody(
                 }
             }
             if (i != null && i.seasons.isNotEmpty()) {
-                LazyRow(contentPadding = PaddingValues(horizontal = S.safeX), horizontalArrangement = Arrangement.spacedBy(S.s2)) {
+                Txt("Seasons", T.title, modifier = Modifier.padding(start = S.safeX, top = 6.dp))
+                LazyRow(contentPadding = PaddingValues(horizontal = S.safeX, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                     items(i.seasons.size) { k ->
                         val se = i.seasons[k]
                         val done = se.episodes.count { byEpisode[it.id]?.finished == true }
-                        SeasonChip(
-                            label = se.name + if (done > 0) "  $done/${se.episodes.size}" else "",
+                        SeasonPosterCard(
+                            name = se.name,
+                            poster = details?.seasonPosters?.get(se.number) ?: s?.poster,
                             selected = se.number == season,
+                            done = done,
+                            total = se.episodes.size,
                             onFocus = { season = se.number },
                         )
                     }
                 }
+                val meta = rememberSeasonMeta(details?.id, season)
                 val eps = i.seasons.firstOrNull { it.number == season }?.episodes ?: i.seasons.first().episodes
                 val rowState = rememberLazyListState()
                 LaunchedEffect(season, resumeEp?.id) {
@@ -487,12 +492,19 @@ private fun SeriesDetailBody(
                 ) {
                     items(eps.size, key = { eps[it].id }) { k ->
                         val e = eps[k]
-                        EpisodeCard(
-                            e = e,
+                        val em = meta[e.number]
+                        EpisodeTile(
+                            number = e.number,
+                            title = e.title.takeUnless { it.isBlank() || Regex("(?i)^(episode\\s*)?\\d+$").matches(it.trim()) || it.contains(Regex("(?i)S\\d+\\s*E\\d+")) }
+                                ?: em?.name ?: e.title,
+                            plot = e.plot?.takeIf { it.isNotBlank() } ?: em?.overview,
+                            image = e.image ?: em?.still ?: i.backdrop ?: s?.backdrop,
+                            score = em?.score,
+                            airDate = em?.airDate,
+                            durationMin = e.durationMs.takeIf { it > 0 }?.let { (it / 60_000).toInt() } ?: em?.runtimeMin,
                             requestFocus = !focusDone && e.id == resumeEp?.id && season == e.season,
                             onFocused = { focusDone = true },
                             watch = byEpisode[e.id],
-                            fallbackImage = i.backdrop ?: s?.backdrop,
                             onFocus = { focusedEp = e },
                             onClick = { play(all.indexOf(e)) },
                             onLongClick = {
@@ -511,11 +523,7 @@ private fun SeriesDetailBody(
                         )
                     }
                 }
-                val fe = focusedEp
-                Txt(
-                    fe?.let { "E${it.number} · ${it.title}" + (it.plot?.let { p -> " — $p" } ?: "") } ?: "Hold OK on an episode to mark it watched.",
-                    T.caption, color = C.inkMuted, maxLines = 2, modifier = Modifier.padding(horizontal = S.safeX),
-                )
+                Txt("Hold OK on an episode to mark it watched.", T.caption, color = C.inkFaint, modifier = Modifier.padding(horizontal = S.safeX))
             }
             Spacer(Modifier.height(8.dp))
             DetailExtras(
@@ -536,75 +544,6 @@ private fun SeriesDetailBody(
             },
             onClose = { picking = false },
             modifier = Modifier.align(Alignment.CenterEnd),
-        )
-    }
-}
-
-@Composable
-private fun SeasonChip(label: String, selected: Boolean, onFocus: () -> Unit) {
-    val source = remember { MutableInteractionSource() }
-    val focused by source.collectIsFocusedAsState()
-    if (focused) LaunchedEffect(Unit) { onFocus() }
-    Box(
-        Modifier
-            .height(34.dp)
-            .clip(RoundedCornerShape(50))
-            .background(
-                when {
-                    focused -> C.focus
-                    selected -> C.bg300
-                    else -> C.bg200.copy(alpha = 0.7f)
-                }
-            )
-            .remoteClickable(source, onFocus)
-            .padding(horizontal = 16.dp),
-        contentAlignment = Alignment.Center,
-    ) { Txt(label, T.label, color = if (focused) C.focusInk else if (selected) C.ink else C.inkMuted) }
-}
-
-@Composable
-private fun EpisodeCard(
-    e: Episode,
-    watch: WatchEntity?,
-    fallbackImage: String?,
-    onFocus: () -> Unit,
-    onClick: () -> Unit,
-    onLongClick: () -> Unit,
-    requestFocus: Boolean = false,
-    onFocused: () -> Unit = {},
-) {
-    val source = remember { MutableInteractionSource() }
-    val focused by source.collectIsFocusedAsState()
-    val fr = remember { FocusRequester() }
-    if (focused) LaunchedEffect(Unit) { onFocus(); onFocused() }
-    if (requestFocus) LaunchedEffect(Unit) { runCatching { fr.requestFocus() } }
-    val (scale, sheen) = dev.k3be.restv.ui.components.rememberCardFocus(focused)
-    val shape = RoundedCornerShape(S.radiusMd)
-    val finished = watch?.finished == true
-    Column(Modifier.width(208.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Box(
-            Modifier
-                .size(208.dp, 117.dp)
-                .cardFocus(focused, scale, shape, sheen)
-                .background(C.bg200)
-                .focusRequester(fr)
-                .remoteClickable(source, onClick, onLongClick),
-        ) {
-            val img = e.image ?: fallbackImage
-            if (img != null) AsyncImage(img, null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize().graphicsLayer { alpha = if (finished && !focused) 0.55f else 1f })
-            Txt("E${e.number}", T.label, modifier = Modifier.align(Alignment.TopStart).padding(6.dp).background(C.scrimStrong, RoundedCornerShape(S.radiusSm)).padding(horizontal = 6.dp))
-            if (finished) Txt("✓ Watched", T.caption, color = C.success, modifier = Modifier.align(Alignment.TopEnd).padding(6.dp).background(C.scrimStrong, RoundedCornerShape(S.radiusSm)).padding(horizontal = 6.dp))
-            if (watch != null && !finished && watch.positionMs > 0) ProgressBar(watch.fraction, Modifier.align(Alignment.BottomStart).fillMaxWidth())
-        }
-        Txt(e.title, T.label, color = if (focused) C.ink else C.inkMuted)
-        val dur = e.durationMs.takeIf { it > 0 }?.let(::duration)
-        Txt(
-            when {
-                finished -> listOfNotNull(dur, "watched").joinToString(" · ")
-                watch != null && watch.positionMs > 0 -> left(watch) ?: ""
-                else -> dur ?: ""
-            },
-            T.caption, color = C.inkFaint,
         )
     }
 }

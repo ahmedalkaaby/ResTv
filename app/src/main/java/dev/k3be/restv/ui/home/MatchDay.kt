@@ -198,7 +198,7 @@ private fun DrawScope.stars(color: Color) {
 
 /** Bottom-left text for a focused match: competition, teams, a live countdown. */
 @Composable
-fun MatchHero(day: MatchDay, modifier: Modifier) {
+fun MatchHero(day: MatchDay, modifier: Modifier, hint: Boolean = true) {
     val m = day.match
     val theme = leagueTheme(m)
     val now = rememberNow()
@@ -211,7 +211,7 @@ fun MatchHero(day: MatchDay, modifier: Modifier) {
             Txt(line, T.title, color = if (live) C.ink else theme.accent,
                 modifier = if (live) Modifier.background(C.live, RoundedCornerShape(S.radiusSm)).padding(horizontal = 8.dp, vertical = 2.dp) else Modifier)
         }
-        Txt("OK · see the channels for this match", T.body, color = C.inkFaint)
+        if (hint) Txt("OK · see the channels for this match", T.body, color = C.inkFaint)
     }
 }
 

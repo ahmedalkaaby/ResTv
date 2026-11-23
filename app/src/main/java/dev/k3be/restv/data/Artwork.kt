@@ -25,6 +25,7 @@ data class Person(val name: String, val role: String?, val photo: String?)
 data class TitleDetails(
     val id: String?,
     val tagline: String?,
+    val overview: String?,
     val runtimeMin: Int?,
     val genres: List<String>,
     val released: String?,
@@ -41,7 +42,19 @@ data class TitleDetails(
     val cast: List<Person>,
     /** Recommended titles (title, year), to match against the catalogue. */
     val similar: List<Pair<String, Int?>>,
+    /** Trailers and clips on YouTube, trailers first. */
+    val videos: List<Video> = emptyList(),
+    /** Season number → poster (series). */
+    val seasonPosters: Map<Int, String> = emptyMap(),
 )
+
+/** A YouTube trailer, teaser or clip. */
+data class Video(val key: String, val name: String, val type: String) {
+    val thumb: String get() = "https://img.youtube.com/vi/$key/hqdefault.jpg"
+}
+
+/** TMDB's facts about one episode: still, synopsis, rating and air date. */
+data class EpisodeMeta(val number: Int, val name: String?, val overview: String?, val still: String?, val score: Double?, val airDate: String?, val runtimeMin: Int?)
 
 /** Wide artwork (no text) and the title logo for a movie or show. */
 data class Art(val backdrop: String?, val logo: String?)
@@ -163,12 +176,39 @@ class Artwork(
                 val results = search(true)?.takeIf { it.isNotEmpty() } ?: (if (year != null) search(false) else null)
                 (results?.firstOrNull() as? JsonObject)?.get("id")?.let { (it as? JsonPrimitive)?.content }
             } ?: return@runCatching null
-            val extra = if (type == "movie") "credits,release_dates,recommendations" else "aggregate_credits,content_ratings,recommendations"
+            val extra = if (type == "movie") "credits,release_dates,recommendations,videos" else "aggregate_credits,content_ratings,recommendations,videos"
             val url = "$apiBase/$type/$id".toHttpUrl().newBuilder().withKey(key)
                 .addQueryParameter("append_to_response", extra).build()
             val o = getJson(url.toString(), key) ?: return@runCatching null
             parseDetails(o, type)
         }.getOrNull()?.also { detailsCache[cacheKey] = it }
+    }
+
+    private val seasonCache = java.util.concurrent.ConcurrentHashMap<String, List<EpisodeMeta>>()
+
+    /** One season's episodes from TMDB (empty without a key or on any failure). */
+    suspend fun season(tmdbId: String, number: Int): List<EpisodeMeta> = withContext(Dispatchers.IO) {
+        val key = prefs.tmdbKey() ?: return@withContext emptyList()
+        seasonCache["$tmdbId|$number"]?.let { return@withContext it }
+        runCatching {
+            val url = "$apiBase/tv/$tmdbId/season/$number".toHttpUrl().newBuilder().withKey(key).build()
+            getJson(url.toString(), key)?.let(::parseSeason)
+        }.getOrNull()?.also { seasonCache["$tmdbId|$number"] = it } ?: emptyList()
+    }
+
+    internal fun parseSeason(o: JsonObject): List<EpisodeMeta> {
+        fun JsonObject.s(k: String) = (this[k] as? JsonPrimitive)?.content?.takeIf { it.isNotBlank() && it != "null" }
+        return (o["episodes"] as? JsonArray).orEmpty().mapNotNull { it as? JsonObject }.mapNotNull { e ->
+            EpisodeMeta(
+                number = e.s("episode_number")?.toIntOrNull() ?: return@mapNotNull null,
+                name = e.s("name"),
+                overview = e.s("overview"),
+                still = e.s("still_path")?.let { "https://image.tmdb.org/t/p/w300$it" },
+                score = e.s("vote_average")?.toDoubleOrNull()?.takeIf { it > 0 },
+                airDate = e.s("air_date"),
+                runtimeMin = e.s("runtime")?.toIntOrNull(),
+            )
+        }
     }
 
     private fun parseDetails(o: JsonObject, type: String): TitleDetails {
@@ -199,9 +239,22 @@ class Artwork(
         }
         val studios = (if (type == "movie") o.arr("production_companies") else o.arr("networks")).mapNotNull { it.s("name") }.take(3)
         val runtime = o.s("runtime")?.toIntOrNull() ?: (o["episode_run_time"] as? JsonArray)?.firstOrNull()?.let { (it as? JsonPrimitive)?.content?.toIntOrNull() }
+        val order = listOf("Trailer", "Teaser", "Clip", "Featurette")
+        val videos = (o["videos"] as? JsonObject)?.arr("results").orEmpty()
+            .filter { it.s("site") == "YouTube" && it.s("key") != null && it.s("type") in order }
+            .sortedWith(compareBy<JsonObject> { order.indexOf(it.s("type")) }.thenByDescending { it.s("official") == "true" })
+            .map { Video(it.s("key")!!, it.s("name") ?: it.s("type")!!, it.s("type")!!) }
+            .take(8)
+        val seasonPosters = o.arr("seasons").mapNotNull { se ->
+            val n = se.s("season_number")?.toIntOrNull() ?: return@mapNotNull null
+            se.s("poster_path")?.let { n to "https://image.tmdb.org/t/p/w342$it" }
+        }.toMap()
         return TitleDetails(
+            videos = videos,
+            seasonPosters = seasonPosters,
             id = o.s("id"),
             tagline = o.s("tagline"),
+            overview = o.s("overview"),
             runtimeMin = runtime?.takeIf { it > 0 },
             genres = o.arr("genres").mapNotNull { it.s("name") },
             released = o.s("release_date") ?: o.s("first_air_date"),
